@@ -9,7 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2302060a' stroke='%2346f08f' stroke-width='2.5'/%3E%3Cellipse cx='16' cy='16' rx='5' ry='4' fill='%236a97ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/app.css?v=20261010d">
+<link rel="stylesheet" href="assets/app.css?v=20261011a">
 </head>
 <body class="s-join">
 <div class="scalebar" aria-hidden="true"><i></i>20 µm</div>
@@ -24,12 +24,12 @@
   <section class="s-card panel">
     <div class="vault-box sm" id="vJoin"></div>
     <div><span class="label">Student · นักเรียน</span>
-    <h1>Join your test</h1></div>
+    <h1>Join your class</h1></div>
     <p class="lead">Type the code from your teacher and your full name.<span class="th">ใส่รหัสจากครูและชื่อ-นามสกุลของคุณ</span></p>
     <form id="joinForm" autocomplete="off">
-      <label class="field"><span>Test code · รหัสข้อสอบ</span>
+      <label class="field"><span>Code · รหัส</span>
         <div class="codebox">
-          <input id="code" maxlength="5" inputmode="text" autocapitalize="characters" spellcheck="false" class="code-input" aria-label="Test code">
+          <input id="code" maxlength="5" inputmode="text" autocapitalize="characters" spellcheck="false" class="code-input" aria-label="Code">
           <div class="code-cells"><i></i><i></i><i></i><i></i><i></i></div>
         </div>
       </label>
@@ -37,7 +37,7 @@
         <input id="name" class="input big" maxlength="40" placeholder="e.g. Somchai Jaidee" autocapitalize="words">
       </label>
       <div class="err" id="joinErr"></div>
-      <button class="btn primary lg wide" id="joinBtn" type="submit">Join test</button>
+      <button class="btn primary lg wide" id="joinBtn" type="submit">Join</button>
     </form>
   </section>
 </main>
@@ -115,6 +115,21 @@
   </section>
 </main>
 
+<!-- ========== PRESENTATION (follows the teacher's slides) ========== -->
+<div id="scr-present" class="hidden">
+  <header class="pbar">
+    <div class="tb-left"><span class="live-dot"></span><div class="tb-name" id="pTitle"></div></div>
+    <div class="pbar-who" id="pWho"></div>
+    <div class="pbar-num" id="pNum">– / –</div>
+  </header>
+  <div class="pstage">
+    <img id="pImg" alt="Slide from your teacher">
+    <div class="ploader" id="pLoad"><div class="spinner"></div></div>
+  </div>
+  <div class="pfoot"><i data-icon="eye"></i>Stay on this page. Your teacher sees if you leave. · อยู่ในหน้านี้ ครูเห็นถ้าคุณออก</div>
+  <div class="pptr hidden" id="pPtr"></div>
+</div>
+
 <!-- ========== MESSAGE ========== -->
 <main id="scr-msg" class="screen hidden">
   <section class="s-card panel"><span class="label red" id="msgTag">Session ended</span><h1 id="msgTitle" style="font-size:28px"></h1><p class="lead" id="msgBody"></p></section>
@@ -143,6 +158,16 @@
   <div class="row"><button class="btn sm primary" id="incOk" type="button">OK, got it · รับทราบ</button></div>
 </div>
 
+<!-- ========== GAMES CLOSED (time up / teacher ended) ========== -->
+<div id="over" class="modal over hidden" role="alertdialog">
+  <div class="modal-box">
+    <span class="label red">Games closed · ปิดเกมแล้ว</span>
+    <h3 id="overTitle">Time's up</h3>
+    <p>The test is over, so the games are closed. Put your iPad down and listen to your teacher.<span class="th" style="display:block;margin-top:6px">หมดเวลาสอบแล้ว ปิดเกมแล้ว วางไอแพดและฟังครู</span></p>
+    <div class="modal-actions"><button class="btn primary" id="overOk" type="button">OK · รับทราบ</button></div>
+  </div>
+</div>
+
 <!-- ========== CONFIRM ========== -->
 <div id="confirm" class="modal hidden">
   <div class="modal-box">
@@ -156,12 +181,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="assets/config.js?v=20261010d"></script>
-<script src="assets/backend.js?v=20261010d"></script>
-<script src="assets/common.js?v=20261010d"></script>
-<script src="assets/bio-bg.js?v=20261010d"></script>
-<script src="assets/biosprites.js?v=20261010d"></script>
-<script src="assets/games.js?v=20261010d"></script>
-<script src="assets/student.js?v=20261010d"></script>
+<script src="assets/config.js?v=20261011a"></script>
+<script src="assets/backend.js?v=20261011a"></script>
+<script src="assets/common.js?v=20261011a"></script>
+<script src="assets/bio-bg.js?v=20261011a"></script>
+<script src="assets/biosprites.js?v=20261011a"></script>
+<script src="assets/games.js?v=20261011a"></script>
+<script src="assets/student.js?v=20261011a"></script>
 </body>
 </html>

@@ -6,11 +6,12 @@
 
   let code = null, uid = null, name = '', meta = null, questions = [], paper = null, order = [], answers = {}, control = {};
   let stage = 'join', lockSeq = 0, leaves = 0, awayMs = 0, away = false, awayStart = 0, submitted = false, wasLocked = false;
-  let timerInt = null, lastResult = null, closed = false, afterAway = false, afterLeaves = 0, gamesOn = false;
+  let timerInt = null, lastResult = null, closed = false, afterAway = false, afterLeaves = 0, gamesOn = false, gamesShut = false, overInt = null;
+  const isPres = () => !!(meta && meta.kind === 'present');
   const P = () => `sessions/${code}/students/${uid}`;
 
   function show(id) {
-    ['join', 'joining', 'wait', 'count', 'test', 'done', 'msg'].forEach(s => $('#scr-' + s).classList.toggle('hidden', s !== id));
+    ['join', 'joining', 'wait', 'count', 'test', 'done', 'msg', 'present'].forEach(s => $('#scr-' + s).classList.toggle('hidden', s !== id));
     document.body.className = document.body.className.replace(/\bs-\w+/g, '').trim() + ' s-' + id;
     stage = id;
   }
@@ -52,7 +53,7 @@
       uid = B.uid();
       const m = await B.get(`sessions/${c}/meta`);
       if (!m) throw new Error('No test found with that code. Check it with your teacher.');
-      if (m.status === 'ended') throw new Error('This test has already ended.');
+      if (m.status === 'ended') throw new Error(m.kind === 'present' ? 'This lesson has already ended.' : 'This test has already ended.');
       code = c; name = n; meta = m;
       try { localStorage.setItem('examlock-student', JSON.stringify({ code, name })); } catch (e2) {}
       await joinSequence();
@@ -88,6 +89,7 @@
   }
 
   async function enter() {
+    if (isPres()) return enterPresent();
     const existing = await B.get(P());
     const split = EL.splitPaper(await B.get(`sessions/${code}/questions`));
     questions = split.questions; paper = split.paper;
@@ -200,12 +202,18 @@
   window.addEventListener('scroll', () => sendView(), { passive: true });
   window.addEventListener('resize', () => sendView());
 
+  // ms left on the clock, or null when the test has no time limit / hasn't started
+  function timeLeft() {
+    const tl = Number(meta && meta.timeLimit) || 0;
+    if (!tl || !meta.startedAt) return null;
+    return meta.startedAt + tl * 60000 + (Number(meta.extraMs) || 0) - B.now();
+  }
+  const testOver = () => !!meta && (meta.status === 'ended' || (timeLeft() != null && timeLeft() <= 0));
   function tickTimer() {
     const el = $('#timer');
-    const tl = Number(meta.timeLimit) || 0;
     const start = meta.startedAt || B.now();
-    if (!tl) { el.textContent = EL.fmtTime(B.now() - start); el.className = 'timer'; return; }
-    const left = start + tl * 60000 + (Number(meta.extraMs) || 0) - B.now();
+    const left = timeLeft();
+    if (left == null) { el.textContent = EL.fmtTime(B.now() - start); el.className = 'timer'; return; }
     el.textContent = EL.fmtTime(left);
     el.className = 'timer' + (left < 60000 ? ' crit' : left < 300000 ? ' warn' : '');
     if (left <= 0 && !submitted) submit(true);
@@ -219,7 +227,7 @@
       event('leftafter', { reason });
       return;
     }
-    if (stage !== 'test' || submitted || away) return;
+    if (!watched() || away) return;
     away = true; awayStart = Date.now();
     lockSeq++; leaves++;
     evalLock();                      // lock locally first; the network may be frozen while away
@@ -240,9 +248,11 @@
   window.addEventListener('focus', comeBack);
   window.addEventListener('pageshow', comeBack);
 
+  // the screens where leaving counts: the test itself, and a live presentation
+  const watched = () => (stage === 'test' && !submitted) || stage === 'present';
   function evalLock() {
     const byLeave = lockSeq > (Number(control.unlockSeq) || 0);
-    const locked = stage === 'test' && !submitted && (byLeave || !!control.forceLock);
+    const locked = watched() && (byLeave || !!control.forceLock);
     const ov = $('#lock');
     if (locked) {
       if (!wasLocked) {
@@ -253,7 +263,9 @@
         if (document.activeElement) document.activeElement.blur();
       }
       $('#lkCount').textContent = leaves;
-      ov.querySelector('h1').textContent = byLeave ? 'You left the test' : 'Paused by your teacher';
+      ov.querySelector('h1').textContent = byLeave ? 'You left the ' + (isPres() ? 'lesson' : 'test') : 'Paused by your teacher';
+      ov.querySelector('.label.red').textContent = isPres() ? 'Screen locked · หน้าจอถูกล็อก' : 'Test locked · ข้อสอบถูกล็อก';
+      ov.querySelector('.lock-th').textContent = isPres() ? 'คุณออกจากหน้าบทเรียน ระบบแจ้งครูแล้ว กรุณายกมือ ครูเท่านั้นที่ปลดล็อกได้' : 'คุณออกจากหน้าข้อสอบ ระบบแจ้งครูแล้ว กรุณายกมือ ครูเท่านั้นที่ปลดล็อกได้';
       $('#lockMsg').textContent = byLeave
         ? 'Your teacher has been notified. Raise your hand. Only your teacher can unlock this screen.'
         : 'Your teacher paused your screen. Please wait.';
@@ -262,7 +274,7 @@
       EL.vault($('#vLock'), 'ok', true); sfx.granted();
       $('#lkStatus').textContent = 'Unlocked';
       setTimeout(() => { ov.classList.add('hidden'); ov.classList.remove('unlocking'); document.body.classList.remove('locked'); $('#lkStatus').textContent = 'Waiting'; }, 1200);
-      EL.toast('<b>Unlocked</b><br><span class="muted">Your teacher unlocked your test. Carry on.</span>', 'green');
+      EL.toast('<b>Unlocked</b><br><span class="muted">Your teacher unlocked your ' + (isPres() ? 'screen' : 'test') + '. Carry on.</span>', 'green');
     }
     wasLocked = locked;
   }
@@ -311,13 +323,33 @@
     show('done');
     BioBG.setLevel(1);
     $('#doneTitle').textContent = auto ? 'Time is up. Test submitted.' : 'Test submitted';
-    if (!gamesOn) { gamesOn = true; Games.mount($('#gameHost')); }
+    if (testOver()) shutGames(false);
+    else if (!gamesOn) { gamesOn = true; Games.mount($('#gameHost')); }
+    // the arcade is only for waiting: it shuts the moment time runs out or the teacher ends the test,
+    // even mid-game. The clock is checked here too, so it shuts even if the iPad has lost the internet.
+    clearInterval(overInt); if (!gamesShut) overInt = setInterval(() => { if (testOver()) shutGames(true); }, 1000);
     if (meta && meta.status === 'ended') closedByTeacher();
     sfx.ok();
     showResult(lastResult);
   }
   // the teacher ended the test: nothing more to watch, the student may close the page
+  function shutGames(loud) {
+    if (gamesShut) return;
+    gamesShut = true; clearInterval(overInt);
+    const wasPlaying = document.body.classList.contains('arcade-on');
+    Games.close();
+    $('#gameHost').innerHTML = ''; $('#gamesBox').classList.add('hidden');
+    if (loud && gamesOn) {
+      // when the clock ran out, say so, even if the test was also ended in the same second
+      const outOfTime = timeLeft() != null && timeLeft() <= 2000;
+      $('#overTitle').textContent = outOfTime || meta.status !== 'ended' ? "Time's up" : 'Your teacher ended the test';
+      $('#over').classList.remove('hidden');
+      if (wasPlaying) sfx.alarm();
+    }
+  }
+  $('#overOk').addEventListener('click', () => $('#over').classList.add('hidden'));
   function closedByTeacher() {
+    shutGames(true);
     if (closed) return;
     closed = true;
     $('#doneTitle').textContent = 'Test closed';
@@ -341,6 +373,75 @@
     $('#msgTitle').textContent = 'Removed from the test';
     $('#msgBody').textContent = 'Your teacher removed you from this test. · ครูได้นำคุณออกจากการสอบนี้';
     show('msg');
+  }
+
+  // ---------------------------------------------------------------- presentation: follow the teacher's slides
+  const slideCache = {};
+  let curSlide = -1;
+  async function enterPresent() {
+    const existing = await B.get(P());
+    const device = EL.detectBrowser();
+    if (existing) {
+      lockSeq = existing.lockSeq || 0; leaves = existing.leaves || 0; awayMs = existing.awayMs || 0;
+      // reopening the page during the lesson counts as leaving it
+      lockSeq++; leaves++;
+      await B.update(P(), { name, online: true, away: false, device, lastSeen: B.now(), lockSeq, leaves, status: 'watching' });
+      event('reload');
+    } else {
+      await B.set(P(), { name, device, joinedAt: B.now(), online: true, status: 'watching', lockSeq: 0, leaves: 0, awayMs: 0, lastSeen: B.now() });
+      event('join');
+    }
+    B.onConnected(on => { if (on) { B.onDisconnectUpdate(P(), { online: false }); B.update(P(), { online: true }); } });
+    B.on(`sessions/${code}/control/${uid}`, c => { control = c || {}; if (control.kicked) return removed(); evalLock(); });
+    B.on(P() + '/chat', c => onChat(c || {}));
+    $('#pTitle').textContent = meta.title || 'Lesson';
+    $('#pWho').textContent = name;
+    show('present');
+    BioBG.setLevel(.25);
+    B.on(`sessions/${code}/meta`, m => onPresMeta(m));
+    evalLock();
+  }
+  function getSlide(i) {
+    if (i < 0 || i >= (Number(meta.n) || 0)) return Promise.resolve(null);
+    if (!slideCache[i]) slideCache[i] = B.get(`sessions/${code}/questions/${i}`).then(s => s && s.img).catch(e => { delete slideCache[i]; throw e; });
+    return slideCache[i];
+  }
+  async function onPresMeta(m) {
+    if (!m) return;
+    meta = m;
+    if (m.status === 'ended') return lessonOver();
+    const i = Number(m.slide) || 0;
+    $('#pNum').textContent = (i + 1) + ' / ' + (m.n || 0);
+    paintPtr(m.ptr);
+    if (i === curSlide) return;
+    curSlide = i;
+    $('#pLoad').classList.remove('hidden');
+    try {
+      const src = await getSlide(i);
+      if (curSlide !== i) return;           // the teacher already moved on
+      const img = $('#pImg');
+      if (src && img.getAttribute('src') !== src) { img.src = src; img.classList.remove('pop'); void img.offsetWidth; img.classList.add('pop'); }
+    } catch (e) { console.error(e); } finally { if (curSlide === i) $('#pLoad').classList.add('hidden'); }
+    getSlide(i + 1).catch(() => {});        // the next slide is ready before the teacher gets there
+  }
+  // the teacher's laser pointer, placed in slide coordinates (0..1)
+  function paintPtr(p) {
+    const dot = $('#pPtr'), img = $('#pImg');
+    if (!p || !p.on || !img.naturalWidth) { dot.classList.add('hidden'); return; }
+    const r = img.getBoundingClientRect(), k = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
+    const w = img.naturalWidth * k, h = img.naturalHeight * k;
+    dot.style.transform = `translate(${r.left + (r.width - w) / 2 + p.x * w}px, ${r.top + (r.height - h) / 2 + p.y * h}px)`;
+    dot.classList.remove('hidden');
+  }
+  $('#pImg').addEventListener('load', () => paintPtr(meta && meta.ptr));
+  window.addEventListener('resize', () => { if (stage === 'present') paintPtr(meta && meta.ptr); });
+  function lessonOver() {
+    $('#lock').classList.add('hidden'); document.body.classList.remove('locked'); wasLocked = false;
+    $('#msgTag').textContent = 'Lesson ended'; $('#msgTag').className = 'label';
+    $('#msgTitle').textContent = 'The lesson has ended';
+    $('#msgBody').innerHTML = 'Thank you for following along. You can close this page now.<span class="th">จบบทเรียนแล้ว ปิดหน้านี้ได้เลย</span>';
+    show('msg');
+    BioBG.setLevel(1);
   }
 
   boot();

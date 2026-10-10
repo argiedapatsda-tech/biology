@@ -4,8 +4,11 @@
   BioBG.start({ level: .85 });
   const S = {
     uid: null, code: null, meta: null, students: {}, control: {}, events: {}, key: {}, questions: [], paper: null, overrides: {},
-    selected: null, tab: 'screen', zoom: 'read', tests: {}, history: {}, editing: null, dirty: false, sound: true
+    selected: null, tab: 'screen', zoom: 'read', tests: {}, history: {}, editing: null, dirty: false, sound: true,
+    kind: 'test', slides: [], deck: null
   };
+  const isPres = () => S.kind === 'present';
+  const stText = st => st === 'active' && isPres() ? 'Watching' : STATUS_TXT[st];
   let sessionSubs = [], renderQueued = false;
   const seenEvents = new Set(); let eventsPrimed = false;
   const resultCache = {};
@@ -76,7 +79,7 @@
   // ================================================================ navigation
   function go(v) {
     $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
-    ['live', 'tests', 'archive', 'setup'].forEach(x => $('#v-' + x).classList.toggle('hidden', x !== v));
+    ['live', 'tests', 'present', 'archive', 'setup'].forEach(x => $('#v-' + x).classList.toggle('hidden', x !== v));
   }
   $('#nav').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -88,7 +91,7 @@
   $('#soundBtn').addEventListener('click', () => { S.sound = !S.sound; $('#soundBtn').textContent = S.sound ? 'Sound on' : 'Sound off'; sfx.unlock(); });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if (!$('#projector').classList.contains('hidden')) closeProjector(); else if (S.selected && document.activeElement !== $('#chatInput')) closeStudent();
+    if (!$('#projector').classList.contains('hidden')) closeProjector(); else if (!$('#presFull').classList.contains('hidden')) closeFull(); else if (S.selected && document.activeElement !== $('#chatInput')) closeStudent();
   });
 
   // ================================================================ live session
@@ -107,15 +110,23 @@
     const code = S.code, ids = Object.keys(S.students).filter(id => statusOf(id) !== 'kicked');
     const grades = ids.map(id => gradeOf(id));
     const avg = grades.length ? Math.round(grades.reduce((a, g) => a + g.pct, 0) / grades.length) : 0;
-    const summary = { title: S.meta.title || 'Test', createdAt: S.meta.createdAt || B.now(), endedAt: S.meta.endedAt || B.now(), n: S.questions.length, students: ids.length, avg };
+    const pres = isPres(), leftN = ids.filter(id => (S.students[id].leaves || 0) > 0).length;
+    const summary = pres
+      ? { kind: 'present', title: S.meta.title || 'Lesson', createdAt: S.meta.createdAt || B.now(), endedAt: S.meta.endedAt || B.now(), n: S.slides.length, students: ids.length, left: leftN }
+      : { title: S.meta.title || 'Test', createdAt: S.meta.createdAt || B.now(), endedAt: S.meta.endedAt || B.now(), n: S.questions.length, students: ids.length, avg };
     try { await B.update(`teachers/${S.uid}/history/${code}`, summary); } catch (e) { console.error(e); }
     sessionSubs.forEach(u => u()); sessionSubs = [];
     try { localStorage.removeItem('examlock-active-' + S.uid); } catch (e) {}
-    closeStudent(); closeProjector();
+    closeStudent(); closeProjector(); closeFull();
     for (const k of Object.keys(alarmLog)) delete alarmLog[k];
     S.code = null; S.meta = null; S.students = {}; rowEls.clear(); $('#roster').innerHTML = '';
     $('#endTitle').textContent = summary.title;
-    $('#endSum').textContent = ids.length ? `${ids.length} student${ids.length === 1 ? '' : 's'} · class average ${avg}%. Every answer is marked and saved in Past results.` : 'Nobody joined this test.';
+    $('#endSum').textContent = pres
+      ? (ids.length ? `${ids.length} student${ids.length === 1 ? '' : 's'} watched · ${leftN} left the page at least once. Attendance is saved in Past results.` : 'Nobody joined this lesson.')
+      : (ids.length ? `${ids.length} student${ids.length === 1 ? '' : 's'} · class average ${avg}%. Every answer is marked and saved in Past results.` : 'Nobody joined this test.');
+    $('#endLabel').textContent = pres ? 'Lesson finished' : 'Test finished';
+    $('#endOpen').textContent = pres ? 'See attendance' : 'See mark sheet';
+    S.kind = 'test'; S.slides = []; document.body.classList.remove('presenting');
     $('#endOpen').dataset.c = code;
     showLiveEmpty(true);
     play('ok');
@@ -125,18 +136,32 @@
   async function openSession(code) {
     sessionSubs.forEach(u => u()); sessionSubs = [];
     seenEvents.clear(); eventsPrimed = false;
-    Object.assign(S, { code, meta: null, students: {}, control: {}, events: {}, key: {}, questions: [], paper: null, overrides: {}, selected: null });
+    Object.assign(S, { code, meta: null, students: {}, control: {}, events: {}, key: {}, questions: [], paper: null, overrides: {}, selected: null, slides: [] });
     rowEls.clear(); $('#roster').innerHTML = ''; feedKeys.clear(); $('#feed').innerHTML = '';
     closeStudent();
     const meta = await B.get(`sessions/${code}/meta`);
     if (!meta) { try { localStorage.removeItem('examlock-active-' + S.uid); } catch (e) {} S.code = null; return showLiveEmpty(); }
     try { localStorage.setItem('examlock-active-' + S.uid, code); } catch (e) {}
-    const split = EL.splitPaper(await B.get(P('questions')));
-    S.questions = split.questions; S.paper = split.paper;
-    S.key = (await B.get(P('key'))) || {};
+    S.kind = meta.kind === 'present' ? 'present' : 'test';
+    document.body.classList.toggle('presenting', isPres());
+    $('#stats').innerHTML = ''; $('#mActions').dataset.sig = '';
+    if (!isPres() && S.tab !== 'screen') { S.tab = 'screen'; $$('#fpTabs > button').forEach(x => x.classList.toggle('on', x.dataset.t === 'screen')); ['screen', 'answers', 'log'].forEach(t => $('#dt-' + t).classList.toggle('hidden', t !== 'screen')); $('#zoomSeg').classList.remove('hidden'); }
+    $('#quick').innerHTML = (isPres()
+      ? ['Please look at the slide.', 'Please stay on this page.', "I'm coming to you.", 'Put your iPad down for now.']
+      : ['Read the question again carefully.', "I'm coming to you.", 'Please stay on the test page.', 'You have 5 minutes left.']).map(t => `<button>${esc(t)}</button>`).join('');
+    if (isPres()) {
+      // the slides travel in the "questions" list, which students may read one item at a time
+      busy('Loading the slides…');
+      try { S.slides = EL.asArray(await B.get(P('questions'))).map(x => x && x.img).filter(Boolean); } finally { busy(''); }
+      S.questions = []; S.paper = null; S.key = {};
+    } else {
+      const split = EL.splitPaper(await B.get(P('questions')));
+      S.questions = split.questions; S.paper = split.paper;
+      S.key = (await B.get(P('key'))) || {};
+    }
     $('#liveEmpty').classList.add('hidden'); $('#liveMain').classList.remove('hidden');
     $('#mCode').textContent = code;
-    sessionSubs.push(B.on(P('meta'), m => { if (!m) return; S.meta = m; renderBar(); queue(); if (m.status === 'ended') setTimeout(finishSession, 1500); }));
+    sessionSubs.push(B.on(P('meta'), m => { if (!m) return; S.meta = m; renderBar(); queue(); if (isPres()) renderSlide(); if (m.status === 'ended') setTimeout(finishSession, 1500); }));
     sessionSubs.push(B.on(P('students'), s => { S.students = s || {}; queue(); }));
     sessionSubs.push(B.on(P('control'), c => { S.control = c || {}; queue(); }));
     sessionSubs.push(B.on(P('overrides'), o => { S.overrides = o || {}; queue(); }));
@@ -151,7 +176,7 @@
     // only a student who is still locked counts as "left"; once unlocked the alert clears
     if ((s.lockSeq || 0) > (c.unlockSeq || 0) || c.forceLock) return s.away ? 'away' : 'locked';
     if (s.online === false) return 'offline';
-    return s.status === 'testing' ? 'active' : 'waiting';
+    return s.status === 'testing' || s.status === 'watching' ? 'active' : 'waiting';
   }
   const gradeOf = sid => EL.grade(S.questions, S.key, (S.students[sid] || {}).answers, S.overrides[sid]);
 
@@ -159,7 +184,7 @@
   // when every student has submitted, the test ends by itself
   let autoEnding = false;
   function checkAllDone() {
-    const m = S.meta; if (!m || m.status !== 'live' || autoEnding) return;
+    const m = S.meta; if (!m || m.status !== 'live' || autoEnding || isPres()) return;
     const ids = Object.keys(S.students).filter(id => statusOf(id) !== 'kicked');
     if (ids.length && ids.every(id => statusOf(id) === 'submitted')) {
       autoEnding = true;
@@ -171,6 +196,7 @@
     if (!S.code) return;
     checkAllDone();
     renderStats(); renderRoster(); renderAlerts();
+    if (isPres() && fullOpen()) bumpFullQuiet();
     if (S.selected) renderStudent();
     syncResults();
     renderBar();
@@ -182,12 +208,18 @@
     $('#mTitle').textContent = m.title || 'Test';
     const st = m.status;
     $('#mStatus').className = 'pill ' + (st === 'live' ? 'live' : st === 'ended' ? 'ended' : 'waiting');
-    $('#mStatus').textContent = st === 'live' ? 'Test in progress' : st === 'ended' ? 'Test ended' : 'Waiting for students';
-    const sig = st + '|' + !!m.release;
+    $('#mStatus').textContent = isPres() ? (st === 'ended' ? 'Lesson ended' : 'Presenting') : st === 'live' ? 'Test in progress' : st === 'ended' ? 'Test ended' : 'Waiting for students';
+    const sig = S.kind + '|' + st + '|' + !!m.release;
     if ($('#mActions').dataset.sig === sig) return;
     $('#mActions').dataset.sig = sig;
     const btn = (act, ic, label, cls) => `<button class="btn sm ${cls || ''}" data-mact="${act}">${ic ? icon(ic) : ''}${label}</button>`;
     let h = '';
+    if (isPres()) {
+      h += btn('full', 'play', 'Present full screen', 'green') + btn('end', 'stop', 'End lesson', 'danger') + btn('lockall', 'pause', 'Pause everyone', 'warn') + btn('unlockall', 'unlock', 'Unlock everyone');
+      h += '<span class="sep"></span>' + btn('projector', 'qr', 'Join screen') + btn('csv', 'download', 'Attendance');
+      $('#mActions').innerHTML = h;
+      return;
+    }
     if (st === 'waiting') h += btn('start', 'play', 'Start the test', 'green');
     if (st === 'live') h += btn('end', 'stop', 'End test', 'danger') + btn('time', 'clock', '+5 min') + btn('lockall', 'pause', 'Pause everyone', 'warn') + btn('unlockall', 'unlock', 'Unlock everyone');
     h += '<span class="sep"></span>';
@@ -201,7 +233,11 @@
     sfx.unlock();
     const a = b.dataset.mact, m = S.meta;
     if (a === 'start') { await B.update(P('meta'), { status: 'live', startedAt: B.now() }); play('granted'); }
-    if (a === 'end' && await confirmBox('End this test?', 'Anyone still working will be submitted automatically. This cannot be undone.', 'End test', true)) {
+    if (a === 'full') openFull();
+    if (a === 'end' && isPres() && await confirmBox('End this lesson?', 'Every student screen closes and the attendance is saved.', 'End lesson', true)) {
+      await B.update(P('meta'), { status: 'ended', endedAt: B.now(), ptr: null });
+    }
+    if (a === 'end' && !isPres() && await confirmBox('End this test?', 'Anyone still working will be submitted automatically. This cannot be undone.', 'End test', true)) {
       await B.update(P('meta'), { status: 'ended', endedAt: B.now() });
     }
     if (a === 'time') { await B.update(P('meta'), { extraMs: (Number(m.extraMs) || 0) + 300000 }); EL.toast('Added 5 minutes for everyone', 'green'); }
@@ -234,19 +270,21 @@
   // ---------------- stats (numbers only change, the boxes stay put)
   function renderStats() {
     const ids = Object.keys(S.students);
-    const c = { total: ids.length, active: 0, alert: 0, submitted: 0 };
+    const c = { total: ids.length, active: 0, alert: 0, submitted: 0, offline: 0 };
     let sum = 0, n = 0;
     ids.forEach(id => {
       const st = statusOf(id);
       if (st === 'active') c.active++;
       if (st === 'away' || st === 'locked') c.alert++;
+      if (st === 'offline') c.offline++;
       if (st === 'submitted') { c.submitted++; sum += gradeOf(id).pct; n++; }
     });
     if (!$('#stats').children.length) {
-      $('#stats').innerHTML = ['Joined', 'Working', 'Left / locked', 'Submitted', 'Average score']
+      $('#stats').innerHTML = (isPres() ? ['Joined', 'Watching', 'Left / locked', 'Offline', 'Slide'] : ['Joined', 'Working', 'Left / locked', 'Submitted', 'Average score'])
         .map((l, i) => `<div class="stat ${['', 'green', 'red', 'amber', ''][i]}"><b>0</b><span>${l}</span></div>`).join('');
     }
-    const vals = [c.total, c.active, c.alert, c.submitted, n ? Math.round(sum / n) + '%' : '–'];
+    const vals = isPres() ? [c.total, c.active, c.alert, c.offline, ((Number(S.meta && S.meta.slide) || 0) + 1) + '/' + S.slides.length]
+      : [c.total, c.active, c.alert, c.submitted, n ? Math.round(sum / n) + '%' : '–'];
     $$('#stats .stat').forEach((el, i) => { const b = el.firstElementChild; if (b.textContent !== String(vals[i])) b.textContent = vals[i]; });
     $$('#stats .stat')[2].classList.toggle('hot', c.alert > 0);
     $('#projCount').textContent = c.total + (c.total === 1 ? ' student joined' : ' students joined');
@@ -260,13 +298,14 @@
   }
   function rowHTML(id) {
     const s = S.students[id], st = statusOf(id), total = S.questions.length || 1;
-    const sub = st === 'away' ? 'Left the test now' : st === 'locked' ? 'Locked · waiting for you'
-      : st === 'submitted' && s.awayAfter ? 'Finished · outside the page now' : STATUS_TXT[st];
+    const sub = st === 'away' ? (isPres() ? 'Left the lesson now' : 'Left the test now') : st === 'locked' ? 'Locked · waiting for you'
+      : st === 'submitted' && s.awayAfter ? 'Finished · outside the page now' : stText(st);
+    const prog = isPres() ? '' : `<span class="s-prog">${s.answered || 0}/${S.questions.length}</span>
+        <span class="s-bar"><i style="transform:scaleX(${(s.answered || 0) / total})"></i></span>`;
     return `<div class="s-av">${esc(initials(s.name))}</div>
       <div class="s-main"><div class="s-name">${esc(s.name)}</div><div class="s-sub">${esc(sub)}</div></div>
-      <div class="s-right"><span class="s-prog">${s.answered || 0}/${S.questions.length}</span>
-        <span class="s-bar"><i style="transform:scaleX(${(s.answered || 0) / total})"></i></span>
-        <span class="s-flags"><span class="s-msgbtn" data-msg="${id}" role="button" title="Send a private message">${icon('chat')}</span>${s.leaves ? `<span class="s-badge left" title="Times left the test">${icon('leave')}${s.leaves}</span>` : ''}${s.afterLeaves ? `<span class="s-badge after" title="Times left after finishing">${icon('leave')}${s.afterLeaves}</span>` : ''}</span></div>`;
+      <div class="s-right">${prog}
+        <span class="s-flags"><span class="s-msgbtn" data-msg="${id}" role="button" title="Send a private message">${icon('chat')}</span>${s.leaves ? `<span class="s-badge left" title="Times left the page">${icon('leave')}${s.leaves}</span>` : ''}${s.afterLeaves ? `<span class="s-badge after" title="Times left after finishing">${icon('leave')}${s.afterLeaves}</span>` : ''}</span></div>`;
   }
   function renderRoster() {
     const host = $('#roster');
@@ -329,7 +368,7 @@
   const feedKeys = new Set();
   const EV_TXT = e => ({
     join: 'joined', rejoin: 'reconnected', reload: 'reloaded the page (locked)',
-    left: 'left the test' + (e.reason ? ' · ' + e.reason.toLowerCase() : ''), back: 'came back after ' + EL.fmtDur(e.ms),
+    left: (isPres() ? 'left the lesson' : 'left the test') + (e.reason ? ' · ' + e.reason.toLowerCase() : ''), back: 'came back after ' + EL.fmtDur(e.ms),
     submit: e.auto ? 'was auto-submitted' : 'submitted', leftafter: 'left the page after finishing', backafter: 'came back after finishing', unlock: 'unlocked by you', lock: 'paused by you', kick: 'removed by you'
   }[e.type] || e.type);
   function onEvents(ev) {
@@ -342,7 +381,8 @@
       if (!eventsPrimed) continue;
       if (e.type === 'left' || e.type === 'reload') {
         play('emergency'); alarmLog[e.sid] = { n: 1, last: Date.now() };
-        EL.toast(`<b>${esc(e.name)} left the test</b><br><span class="muted">${e.type === 'reload' ? 'They reloaded the page.' : 'Their screen is now locked.'} Click to view.</span>`, 'red', 7000, () => openStudent(e.sid));
+        if (fullOpen()) bumpFull();
+        EL.toast(`<b>${esc(e.name)} left the ${isPres() ? 'lesson' : 'test'}</b><br><span class="muted">${e.type === 'reload' ? 'They reloaded the page.' : 'Their screen is now locked.'} Click to view.</span>`, 'red', 7000, () => openStudent(e.sid));
       } else if (e.type === 'join') { play('join'); }
       else if (e.type === 'leftafter') {
         play('alarm');
@@ -386,6 +426,8 @@
     $('#feedPanel').classList.add('hidden'); $('#focusPanel').classList.remove('hidden');
     $('#fpActions').dataset.sig = '';
     lastMirrorSig = ''; lastScrollY = -1; chatSig = '';
+    $$('#fpTabs [data-t=screen], #fpTabs [data-t=answers]').forEach(b => b.classList.toggle('hidden', isPres()));
+    if (isPres() && S.tab !== 'log') $('#fpTabs [data-t=log]').click();
     renderStudent(); renderRoster();
     if (opts && opts.chat) setTimeout(focusChat, 60);
   }
@@ -418,7 +460,7 @@
     const sid = S.selected, s = S.students[sid]; if (!s) return closeStudent();
     const st = statusOf(sid), c = S.control[sid] || {};
     $('#fpStatus').className = 'pill ' + st;
-    $('#fpStatus').textContent = STATUS_TXT[st];
+    $('#fpStatus').textContent = stText(st);
     $('#fpAvatar').textContent = initials(s.name);
     $('#fpName').textContent = s.name;
     $('#fpMeta').textContent = `${s.device || ''} · joined ${s.joinedAt ? EL.clock(s.joinedAt).slice(0, 5) : '–'} · left ${s.leaves || 0}× · away ${EL.fmtDur(s.awayMs)}`;
@@ -495,7 +537,7 @@
     $('#ffDevice').textContent = `${s.device || 'Device'} · ${vw}×${vh}`;
     $('#mirrorNote').textContent = st === 'submitted' ? 'Final answers' : age == null ? 'waiting for first movement' : 'last moved ' + (age < 2 ? 'just now' : EL.fmtDur(age * 1000) + ' ago');
   }
-  window.addEventListener('resize', () => { if (S.selected && S.tab === 'screen') { lastScrollY = -1; renderStudent(); } });
+  window.addEventListener('resize', () => { if (S.selected && S.tab === 'screen') { lastScrollY = -1; renderStudent(); } if (isPres()) paintOwnPtr(); });
 
   function fmtAnswer(q, a) {
     if (a == null || a === '') return '<span class="muted">(no answer)</span>';
@@ -564,6 +606,7 @@
 
   // ================================================================ results file
   function exportCSV() {
+    if (isPres()) return attendanceCSV(S.meta, S.students, S.control, S.code);
     const qs = S.questions;
     const head = ['Name', 'Status', 'Score', 'Total', 'Percent', 'Times left', 'Seconds away', 'Device', 'Joined', 'Submitted'].concat(qs.map((q, i) => 'Q' + (q.sheet ? q.n : i + 1)));
     const cell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
@@ -585,6 +628,7 @@
     if (!S.code) return;
     $('#projector').classList.remove('hidden');
     $('#projTitle').textContent = S.meta ? S.meta.title : '';
+    $('#projLabel').textContent = isPres() ? 'Join the lesson' : 'Join the test';
     $('#projUrl').textContent = studentURL().replace(/^https?:\/\//, '');
     $('#projCode').textContent = S.code;
     $('#projQr').innerHTML = '';
@@ -614,11 +658,20 @@
     const n = Object.keys(S.students).length;
     let sub = `${S.questions.length} questions · code ${S.code}`;
     let timerTxt = '--:--', cls = '';
-    if (m.status === 'live' && m.startedAt) {
+    if (isPres()) {
+      sub = `Slide ${(Number(m.slide) || 0) + 1} of ${S.slides.length} · code ${S.code} · ${n} watching`;
+      timerTxt = m.status === 'ended' ? 'Ended' : EL.fmtTime(B.now() - (m.startedAt || B.now()));
+    } else if (m.status === 'live' && m.startedAt) {
       const tl = Number(m.timeLimit) || 0;
       if (tl) {
         const left = m.startedAt + tl * 60000 + (Number(m.extraMs) || 0) - B.now();
         sub += ' · time left'; timerTxt = EL.fmtTime(left); cls = left < 60000 ? 'crit' : left < 300000 ? 'warn' : '';
+        // time is up: end the test for everyone (a few seconds' grace lets the last answers arrive)
+        if (left < -3000 && !autoEnding) {
+          autoEnding = true;
+          EL.toast("<b>Time's up.</b><br><span class=\"muted\">The test is ended and the results are saved.</span>", 'green', 5000);
+          Promise.resolve(B.update(P('meta'), { status: 'ended', endedAt: B.now() })).finally(() => { autoEnding = false; });
+        }
       } else { sub += ' · time running'; timerTxt = EL.fmtTime(B.now() - m.startedAt); }
     } else if (m.status === 'waiting') sub += ` · ${n} waiting`;
     else if (m.status === 'ended') timerTxt = 'Ended';
@@ -872,10 +925,13 @@
   function renderArchive() {
     const ids = Object.keys(S.history).sort((a, b) => S.history[b].createdAt - S.history[a].createdAt);
     $('#archiveList').innerHTML = ids.map(c => {
-      const h = S.history[c], done = !!h.endedAt;
+      const h = S.history[c], done = !!h.endedAt, pres = h.kind === 'present';
+      const facts = pres ? `${h.n} slides${done ? ` · ${h.students || 0} students · ${h.left || 0} left the page` : ''}`
+        : `${h.n} questions${done ? ` · ${h.students || 0} students · average ${h.avg || 0}%` : ''}`;
       return `<div class="arow" data-arc="${done ? 'sheet' : 'open'}" data-c="${c}"><span class="code">${c}</span>
-        <div class="grow"><b>${esc(h.title)}</b><div class="small muted">${new Date(h.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${h.n} questions${done ? ` · ${h.students || 0} students · average ${h.avg || 0}%` : ' · <span style="color:var(--green)">still open</span>'}</div></div>
-        <button class="btn sm ${done ? 'primary' : ''}" data-arc="${done ? 'sheet' : 'open'}" data-c="${c}">${done ? 'Mark sheet' : 'Open live'}</button>
+        <div class="grow"><b>${pres ? '<span class="kind-tag">Slides</span>' : ''}${esc(h.title)}</b><div class="small muted">${new Date(h.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${facts}${done ? '' : ' · <span style="color:var(--gfp)">still open</span>'}</div></div>
+        ${pres && done ? `<button class="btn sm" data-arc="again" data-c="${c}">${icon('play')}Present again</button>` : ''}
+        <button class="btn sm ${done ? 'primary' : ''}" data-arc="${done ? 'sheet' : 'open'}" data-c="${c}">${done ? (pres ? 'Attendance' : 'Mark sheet') : 'Open live'}</button>
         <button class="btn sm iconbtn ghost" data-arc="del" data-c="${c}" title="Delete">${icon('trash')}</button></div>`;
     }).join('') || '<p class="muted">No tests given yet.</p>';
   }
@@ -885,6 +941,7 @@
     const c = b.dataset.c;
     if (b.dataset.arc === 'open') openSession(c);
     if (b.dataset.arc === 'sheet') openMarksheet(c);
+    if (b.dataset.arc === 'again') presentAgain(c);
     if (b.dataset.arc === 'del' && await confirmBox('Delete results for ' + c + '?', 'All answers and activity for this test are erased for good.', 'Delete', true)) {
       await B.remove(`sessions/${c}`); await B.remove(`teachers/${S.uid}/history/${c}`);
       if (S.code === c) { sessionSubs.forEach(u => u()); sessionSubs = []; S.code = null; showLiveEmpty(); }
@@ -898,6 +955,7 @@
     $('#arcListWrap').classList.add('hidden'); $('#arcDetail').classList.remove('hidden');
     $('#arcDetail').innerHTML = '<div class="spinner" style="margin:40px auto"></div>';
     const d = (await B.get(`sessions/${code}`)) || {};
+    if ((d.meta || {}).kind === 'present') return renderAttendance(code, d);
     const split = EL.splitPaper(d.questions);
     MS = { code, meta: d.meta || {}, questions: split.questions, key: d.key || {}, students: d.students || {}, control: d.control || {}, overrides: d.overrides || {} };
     renderMarksheet();
@@ -935,7 +993,7 @@
   }
   $('#arcDetail').addEventListener('click', async e => {
     if (e.target.closest('#msBack')) { $('#arcDetail').classList.add('hidden'); $('#arcListWrap').classList.remove('hidden'); return; }
-    if (e.target.closest('#msCsv')) return marksheetCSV();
+    if (e.target.closest('#msCsv')) return MS && MS.attendance ? attendanceCSV(MS.meta, MS.students, MS.control, MS.code) : marksheetCSV();
     const c = e.target.closest('.ms-c.can'); if (!c) return;
     const sid = c.dataset.sid, q = c.dataset.q;
     const now = EL.grade(MS.questions, MS.key, MS.students[sid].answers, MS.overrides[sid]).marks[q];
@@ -955,6 +1013,210 @@
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     a.download = `${(m.meta.title || 'test').replace(/[^\w\- ]+/g, '').trim() || 'test'}_${m.code}_marks.csv`;
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  // ================================================================ presentation
+  // Slides are pictures in sessions/<code>/questions/<i> (students may read that list, so no
+  // rule change is needed). meta.slide = the slide on show, meta.ptr = the laser pointer.
+  const PS = { files: null, slides: [] };
+  $('#prFile').addEventListener('change', async e => {
+    const files = Array.from(e.target.files || []); e.target.value = '';
+    if (!files.length) return;
+    try {
+      const slides = await Importer.readSlides(files, t => busy(t));
+      PS.slides = slides;
+      if (!$('#prTitle').value.trim()) $('#prTitle').value = files[0].name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+      renderDeck();
+    } catch (ex) { console.error(ex); EL.toast(esc(ex.message || ex), 'red', 10000); }
+    finally { busy(''); }
+  });
+  function renderDeck() {
+    const n = PS.slides.length;
+    $('#prThumbs').innerHTML = PS.slides.map((src, i) => `<figure class="pr-th"><img src="${src}" alt=""><figcaption>${i + 1}</figcaption><button class="pr-del" data-del="${i}" title="Remove this slide">${icon('x')}</button></figure>`).join('');
+    $('#prEmpty').classList.toggle('hidden', !!n);
+    $('#prReady').classList.toggle('hidden', !n);
+    const kb = Math.round(PS.slides.reduce((a, x) => a + x.length, 0) * .75 / 1024);
+    $('#prInfo').textContent = n ? `${n} slide${n === 1 ? '' : 's'} · about ${kb > 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB'} in total` : '';
+  }
+  $('#prThumbs').addEventListener('click', e => { const b = e.target.closest('[data-del]'); if (!b) return; PS.slides.splice(Number(b.dataset.del), 1); renderDeck(); });
+  $('#prClear').addEventListener('click', () => { PS.slides = []; $('#prTitle').value = ''; renderDeck(); });
+  $('#prStart').addEventListener('click', () => {
+    const title = $('#prTitle').value.trim();
+    if (!title) return EL.toast('Give the lesson a title first.', 'red');
+    startDeck(title, PS.slides);
+  });
+  async function presentAgain(old) {
+    busy('Loading the slides…');
+    let slides = [], title = (S.history[old] || {}).title || 'Lesson';
+    try { slides = EL.asArray(await B.get(`sessions/${old}/questions`)).map(x => x && x.img).filter(Boolean); } finally { busy(''); }
+    if (!slides.length) return EL.toast('Those slides are no longer saved.', 'red');
+    startDeck(title, slides);
+  }
+  async function startDeck(title, slides) {
+    if (!slides.length) return;
+    if (S.code && S.meta && S.meta.status !== 'ended' && !(await confirmBox('Something is still running', 'Starting this lesson switches your screen away from it. It keeps running and you can reopen it from Past results.', 'Start anyway'))) return;
+    let code = null;
+    for (let i = 0; i < 6; i++) { const c = EL.makeCode(); if (!(await B.get(`sessions/${c}/meta`))) { code = c; break; } }
+    if (!code) return EL.toast('Could not make a code. Try again.', 'red');
+    const now = B.now();
+    try {
+      // the session exists first ("waiting"), then the slides go up one by one, then it opens
+      busy('Getting the lesson ready…');
+      await B.set(`sessions/${code}/meta`, { kind: 'present', title, status: 'waiting', createdAt: now, n: slides.length, slide: 0, owner: S.uid });
+      for (let i = 0; i < slides.length; i++) {
+        busy(`Sending slide ${i + 1} of ${slides.length}…`);
+        await B.update(`sessions/${code}/questions`, { [i]: { type: 'slide', img: slides[i] } });
+      }
+      await B.update(`sessions/${code}/meta`, { status: 'live', startedAt: B.now() });
+      await B.set(`teachers/${S.uid}/history/${code}`, { kind: 'present', title, createdAt: now, n: slides.length });
+    } catch (ex) { console.error(ex); busy(''); return EL.toast('Could not start: ' + esc(ex.message || ex), 'red', 8000); }
+    busy('');
+    PS.slides = []; $('#prTitle').value = ''; renderDeck();
+    play('granted');
+    await openSession(code);
+    openProjector();
+  }
+
+  // ---------------- presenting: the teacher's own view
+  const curIdx = () => Math.max(0, Math.min(S.slides.length - 1, Number(S.meta && S.meta.slide) || 0));
+  function goSlide(i) {
+    if (!isPres() || !S.meta || S.meta.status === 'ended') return;
+    i = Math.max(0, Math.min(S.slides.length - 1, i));
+    if (i === curIdx()) return;
+    S.meta.slide = i; renderSlide(); renderStats(); tick();
+    B.update(P('meta'), { slide: i, ptr: null });
+  }
+  function renderSlide() {
+    const i = curIdx(), n = S.slides.length, src = S.slides[i] || '';
+    for (const img of [$('#psImg'), $('#pfImg')]) if (img.getAttribute('src') !== src) img.src = src;
+    $('#psNext').src = S.slides[i + 1] || '';
+    $('#psNextBox').classList.toggle('hidden', i + 1 >= n);
+    $('#psNum').textContent = `${i + 1} / ${n}`; $('#pfNum').textContent = `${i + 1} / ${n}`;
+    const strip = $('#psStrip');
+    if (strip._n !== n || strip._code !== S.code) {
+      strip._n = n; strip._code = S.code;
+      strip.innerHTML = S.slides.map((s2, k) => `<button class="ps-mini" data-go="${k}"><img src="${s2}" alt=""><span>${k + 1}</span></button>`).join('');
+    }
+    strip.querySelectorAll('.ps-mini').forEach((b, k) => b.classList.toggle('on', k === i));
+    const on = strip.querySelector('.ps-mini.on'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    paintOwnPtr();
+  }
+  $('#psStrip').addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) goSlide(Number(b.dataset.go)); });
+  $('#psPrev').addEventListener('click', () => goSlide(curIdx() - 1));
+  $('#psNextBtn').addEventListener('click', () => goSlide(curIdx() + 1));
+  $('#pfPrev').addEventListener('click', () => goSlide(curIdx() - 1));
+  $('#pfNextBtn').addEventListener('click', () => goSlide(curIdx() + 1));
+  // arrow keys, space and presentation clickers (they send PageUp / PageDown)
+  document.addEventListener('keydown', e => {
+    if (!isPres() || !S.code || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+    if ($('#v-live').classList.contains('hidden') && !fullOpen()) return;
+    if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter', 'n'].includes(e.key)) { e.preventDefault(); goSlide(curIdx() + 1); }
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace', 'p'].includes(e.key)) { e.preventDefault(); goSlide(curIdx() - 1); }
+    else if (e.key === 'Home') goSlide(0);
+    else if (e.key === 'End') goSlide(S.slides.length - 1);
+    else if (e.key === 'l' || e.key === 'L') setLaser(!laser);
+    else if ((e.key === 'f' || e.key === 'F5') && !fullOpen()) { e.preventDefault(); openFull(); }
+  });
+
+  // ---------------- laser pointer: hold it over the slide, students see a red dot in the same spot
+  let laser = false, ptrT = 0, ptrTimer = null, ownPtr = null;
+  function setLaser(on) {
+    laser = on;
+    document.body.classList.toggle('laser', on);
+    $$('.laser-btn').forEach(b => b.classList.toggle('on', on));
+    if (!on) { ownPtr = null; paintOwnPtr(); if (S.code && isPres()) B.update(P('meta'), { ptr: null }); }
+  }
+  $$('.laser-btn').forEach(b => b.addEventListener('click', () => setLaser(!laser)));
+  function sendPtr(p) {
+    ownPtr = p; paintOwnPtr();
+    clearTimeout(ptrTimer);
+    const go = () => { ptrT = Date.now(); B.update(P('meta'), { ptr: p }); };
+    if (Date.now() - ptrT > 70) go(); else ptrTimer = setTimeout(go, 70);
+  }
+  function slideXY(img, e) {
+    const r = img.getBoundingClientRect(), k = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
+    const w = img.naturalWidth * k, h = img.naturalHeight * k, ox = r.left + (r.width - w) / 2, oy = r.top + (r.height - h) / 2;
+    const x = (e.clientX - ox) / w, y = (e.clientY - oy) / h;
+    return x < 0 || x > 1 || y < 0 || y > 1 ? null : { x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000, on: true };
+  }
+  for (const id of ['#psImg', '#pfImg']) {
+    const img = $(id);
+    img.addEventListener('pointermove', e => { if (!laser || !img.naturalWidth || !isPres()) return; const p = slideXY(img, e); if (p) sendPtr(p); });
+    img.addEventListener('pointerleave', () => { if (laser && isPres()) sendPtr(null); });
+  }
+  function paintOwnPtr() {
+    for (const [imgId, dotId] of [['#psImg', '#psPtr'], ['#pfImg', '#pfPtr']]) {
+      const img = $(imgId), dot = $(dotId);
+      if (!ownPtr || !img.naturalWidth || !img.offsetParent) { dot.classList.add('hidden'); continue; }
+      const host = img.parentElement.getBoundingClientRect(), r = img.getBoundingClientRect(), k = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
+      const w = img.naturalWidth * k, h = img.naturalHeight * k;
+      dot.style.transform = `translate(${r.left - host.left + (r.width - w) / 2 + ownPtr.x * w}px, ${r.top - host.top + (r.height - h) / 2 + ownPtr.y * h}px)`;
+      dot.classList.remove('hidden');
+    }
+  }
+
+  // ---------------- full screen for the projector: just the slide. Names never show here,
+  // only a small red count, so the class doesn't see who left; the alarm still sounds.
+  const fullOpen = () => !$('#presFull').classList.contains('hidden');
+  function openFull() {
+    if (!isPres()) return;
+    $('#presFull').classList.remove('hidden');
+    renderSlide(); bumpFull();
+    const el = document.documentElement;
+    if (el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen().catch(() => {});
+  }
+  function closeFull() {
+    $('#presFull').classList.add('hidden');
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  }
+  $('#pfClose').addEventListener('click', closeFull);
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && fullOpen()) $('#presFull').classList.add('hidden'); });
+  function bumpFullQuiet() {
+    const n = Object.keys(S.students).filter(id => { const st = statusOf(id); return st === 'away' || st === 'locked'; }).length;
+    const b = $('#pfAlert'); if (b.textContent !== (n ? n + ' left' : '')) bumpFull();
+  }
+  function bumpFull() {
+    const n = Object.keys(S.students).filter(id => { const st = statusOf(id); return st === 'away' || st === 'locked'; }).length;
+    const b = $('#pfAlert');
+    b.textContent = n ? n + ' left' : '';
+    b.classList.toggle('hidden', !n);
+    if (n) { b.classList.remove('pulse'); void b.offsetWidth; b.classList.add('pulse'); }
+  }
+  $('#pfAlert').addEventListener('click', () => { closeFull(); const ids = rosterOrder().filter(id => ['away', 'locked'].includes(statusOf(id))); if (ids[0]) openStudent(ids[0]); });
+
+  // ---------------- attendance (past lessons)
+  function renderAttendance(code, d) {
+    const m = d.meta || {}, studs = d.students || {}, ctl = d.control || {};
+    const ids = Object.keys(studs).filter(id => !(ctl[id] || {}).kicked).sort((a, b) => (studs[a].name || '').localeCompare(studs[b].name || ''));
+    MS = { code, meta: m, students: studs, control: ctl, attendance: true };
+    $('#arcDetail').innerHTML = `
+      <div class="ms-head">
+        <button class="btn sm ghost" id="msBack">← Past results</button>
+        <div class="ms-title"><span class="label">Attendance · ${esc(code)}</span><h2>${esc(m.title || 'Lesson')}</h2>
+          <div class="small muted">${m.createdAt ? new Date(m.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''} · ${m.n || 0} slides · ${ids.length} students · ${ids.filter(id => studs[id].leaves).length} left the page</div></div>
+        <button class="btn sm" id="msCsv">${icon('download')}Download</button>
+      </div>
+      <div class="ms-wrap"><table class="ms">
+        <thead><tr><th class="ms-name">Student</th><th class="ms-num">Joined</th><th class="ms-num">Times left</th><th class="ms-num">Time away</th><th class="ms-num">Device</th></tr></thead>
+        <tbody>${ids.map(id => { const s = studs[id]; return `<tr><td class="ms-name">${esc(s.name)}</td>
+          <td class="ms-num">${s.joinedAt ? EL.clock(s.joinedAt).slice(0, 5) : '–'}</td>
+          <td class="ms-num ${s.leaves ? 'bad' : ''}">${s.leaves || 0}</td>
+          <td class="ms-num">${s.awayMs ? EL.fmtDur(s.awayMs) : '–'}</td>
+          <td class="ms-num muted">${esc(s.device || '')}</td></tr>`; }).join('') || '<tr><td class="ms-name muted">Nobody joined.</td><td></td><td></td><td></td><td></td></tr>'}</tbody>
+      </table></div>`;
+  }
+  function attendanceCSV(m, studs, ctl, code) {
+    const cell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const rows = Object.keys(studs || {}).filter(id => !((ctl || {})[id] || {}).kicked).map(id => {
+      const s = studs[id];
+      return [s.name, s.joinedAt ? new Date(s.joinedAt).toLocaleString() : '', s.leaves || 0, Math.round((s.awayMs || 0) / 1000), s.device || ''];
+    }).sort((x, y) => String(x[0]).localeCompare(String(y[0])));
+    const csv = '﻿' + [['Name', 'Joined', 'Times left', 'Seconds away', 'Device']].concat(rows).map(r => r.map(cell).join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `${((m || {}).title || 'lesson').replace(/[^\w\- ]+/g, '').trim() || 'lesson'}_${code}_attendance.csv`;
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 

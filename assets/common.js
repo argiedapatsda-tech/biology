@@ -277,7 +277,9 @@ window.EL = (function () {
     leaf: '<path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15"/><path d="M5 19l7-7"/>',
     sound: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
     mute: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4zM16 9.5l5 5M21 9.5l-5 5"/>',
-    out: '<path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M15 8l4 4-4 4M9 12h10"/>'
+    out: '<path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M15 8l4 4-4 4M9 12h10"/>',
+    present: '<rect x="3" y="4" width="18" height="12" rx="1.8"/><path d="M12 16v4M8.5 20h7M7.5 12l3-3 2.5 2 3.5-4"/>',
+    laser: '<circle cx="17.5" cy="6.5" r="2.2"/><path d="M4 20l9.5-9.5"/><path d="M17.5 1.8v1.4M17.5 9.8v1.4M22.2 6.5h-1.4M14.2 6.5h-1.4"/>'
   };
   const icon = (n, cls) => `<svg class="i${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
   // fills <i data-icon="name"></i> placeholders in static HTML

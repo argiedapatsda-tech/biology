@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2302060a' stroke='%2346f08f' stroke-width='2.5'/%3E%3Cellipse cx='16' cy='16' rx='5' ry='4' fill='%236a97ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/app.css?v=20261010d">
+<link rel="stylesheet" href="assets/app.css?v=20261011a">
 </head>
 <body>
 
@@ -39,6 +39,7 @@
     <nav class="nav" id="nav">
       <button data-v="live" class="on" title="Live class"><i data-icon="live"></i><span>Live class</span></button>
       <button data-v="tests" title="Tests"><i data-icon="tests"></i><span>Tests</span></button>
+      <button data-v="present" title="Present slides"><i data-icon="present"></i><span>Present</span></button>
       <button data-v="archive" title="Past results"><i data-icon="archive"></i><span>Past results</span></button>
       <button data-v="setup" title="Setup"><i data-icon="setup"></i><span>Setup</span></button>
     </nav>
@@ -53,13 +54,13 @@
     <section class="view" id="v-live">
       <div class="empty-live hidden" id="liveEmpty">
         <div class="empty-box panel" id="emptyIdle">
-          <span class="label">No test running</span>
-          <h2>Start a test to watch your class live</h2>
-          <p>Make a test or upload a file in <b>Tests</b>, then press <b>Start with class</b>. Students join with a QR code.</p>
+          <span class="label">Nothing running</span>
+          <h2>Start a test or present slides</h2>
+          <p>Make a test in <b>Tests</b> and press <b>Start with class</b>, or upload slides in <b>Present</b>. Students join with a QR code.</p>
           <button class="btn primary" id="goTests">Go to tests</button>
         </div>
         <div class="empty-box panel hidden" id="emptyEnded">
-          <span class="label">Test finished</span>
+          <span class="label" id="endLabel">Test finished</span>
           <h2 id="endTitle">Results saved</h2>
           <p id="endSum"></p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="btn primary" id="endOpen">See mark sheet</button><button class="btn" id="endTests">Go to tests</button></div>
@@ -78,6 +79,21 @@
         </div>
         <div class="actions" id="mActions"></div>
         <div class="stats" id="stats"></div>
+        <!-- presenting: the slide everyone sees, controls, next slide and all slides -->
+        <div class="pres-box" id="presBox">
+          <div class="ps-main panel">
+            <div class="ps-stage"><img id="psImg" alt="Current slide"><div class="laser-dot hidden" id="psPtr"></div></div>
+            <div class="ps-ctrl">
+              <button class="btn sm" id="psPrev" type="button">← Back</button>
+              <b class="ps-num" id="psNum">– / –</b>
+              <button class="btn sm primary" id="psNextBtn" type="button">Next →</button>
+              <button class="btn sm laser-btn" type="button" title="Point at the slide: students see a red dot (key L)"><i data-icon="laser"></i>Laser pointer</button>
+              <span class="small muted ps-keys">← → or a clicker change slides · F full screen · L laser</span>
+            </div>
+          </div>
+          <div class="ps-next panel" id="psNextBox"><span class="label">Next slide</span><img id="psNext" alt=""></div>
+          <div class="ps-strip" id="psStrip"></div>
+        </div>
         <div class="live-body" id="liveBody">
           <div class="roster-col">
             <div class="roster-head"><span class="label" id="rosterLabel">Students</span><input class="input sm" id="search" placeholder="Find a student…"></div>
@@ -175,6 +191,33 @@
       </div>
     </section>
 
+    <!-- ---------- PRESENT ---------- -->
+    <section class="view hidden" id="v-present">
+      <h2 class="view-title">Present slides</h2>
+      <div class="pr-layout">
+        <div class="panel pr-card">
+          <span class="label">1 · Choose your slides</span>
+          <label class="btn primary"><i data-icon="download" data-cls="up"></i>Choose slides<input type="file" id="prFile" accept=".pdf,.pptx,.ppt,image/*" multiple hidden></label>
+          <div class="pr-help small">
+            <b>PowerPoint:</b> File → Export → Create PDF/XPS → Publish. Then choose that PDF here.<br>
+            <b>Google Slides, Keynote, Canva:</b> download as PDF.<br>
+            <b>Pictures</b> (PNG, JPG) work too. Pick several and each one becomes a slide.
+          </div>
+          <p class="small muted" style="margin:0">Students scan the QR code and see the slide you are on. If they leave the page, their screen locks and their name turns red, the same as in a test. Animations and videos inside slides don't come across.</p>
+        </div>
+        <div class="panel pr-card">
+          <span class="label">2 · Check and start</span>
+          <div id="prEmpty" class="muted">No slides yet. Choose a PDF of your slides on the left.</div>
+          <div id="prReady" class="hidden" style="display:grid;gap:14px">
+            <label class="field"><span>Lesson title</span><input class="input" id="prTitle" maxlength="80" placeholder="e.g. Cell Division"></label>
+            <div class="small muted" id="prInfo"></div>
+            <div class="pr-thumbs" id="prThumbs"></div>
+            <div class="pr-row"><button class="btn sm ghost" id="prClear" type="button">Clear</button><button class="btn primary" id="prStart" type="button"><i data-icon="play"></i>Start presenting</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ---------- ARCHIVE ---------- -->
     <section class="view hidden" id="v-archive">
       <div id="arcListWrap"><h2 class="view-title">Past results</h2><div id="archiveList" class="archive-list"></div></div>
@@ -191,7 +234,7 @@
   <button class="btn proj-close" id="projClose"><i data-icon="x"></i>Close</button>
   <div class="proj-inner">
     <div class="proj-left">
-      <span class="label">Join the test</span>
+      <span class="label" id="projLabel">Join the test</span>
       <h1 id="projTitle"></h1>
       <div class="proj-steps">
         <div class="proj-step"><span>1</span><div>Scan the QR code with your iPad camera</div></div>
@@ -204,6 +247,17 @@
       <div class="proj-count" id="projCount"></div>
     </div>
   </div>
+</div>
+
+<!-- ================= FULL-SCREEN SLIDES (projector) ================= -->
+<div class="pres-full hidden" id="presFull">
+  <div class="pf-stage"><img id="pfImg" alt="Slide"><div class="laser-dot hidden" id="pfPtr"></div></div>
+  <div class="pf-bar">
+    <button class="pf-btn" id="pfPrev" type="button">←</button><span id="pfNum"></span><button class="pf-btn" id="pfNextBtn" type="button">→</button>
+    <button class="pf-btn laser-btn" type="button">Laser (L)</button>
+    <button class="pf-btn" id="pfClose" type="button">Exit (Esc)</button>
+  </div>
+  <button class="pf-alert hidden" id="pfAlert" type="button" title="Students who left the page. Click to see who."></button>
 </div>
 
 <!-- ================= MODALS ================= -->
@@ -225,11 +279,11 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="assets/config.js?v=20261010d"></script>
-<script src="assets/backend.js?v=20261010d"></script>
-<script src="assets/common.js?v=20261010d"></script>
-<script src="assets/bio-bg.js?v=20261010d"></script>
-<script src="assets/importer.js?v=20261010d"></script>
-<script src="assets/teacher.js?v=20261010d"></script>
+<script src="assets/config.js?v=20261011a"></script>
+<script src="assets/backend.js?v=20261011a"></script>
+<script src="assets/common.js?v=20261011a"></script>
+<script src="assets/bio-bg.js?v=20261011a"></script>
+<script src="assets/importer.js?v=20261011a"></script>
+<script src="assets/teacher.js?v=20261011a"></script>
 </body>
 </html>

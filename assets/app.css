@@ -811,3 +811,74 @@ body.arcade-on { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* ================================================================
+   PRESENTATION: students follow the teacher's slides
+   ================================================================ */
+body.s-present .brandbar, body.s-present .scalebar { display: none; }
+#scr-present { position: fixed; inset: 0; z-index: 2; display: flex; flex-direction: column; background: rgba(2, 6, 10, .9); }
+.pbar { flex: none; height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 16px; padding-top: env(safe-area-inset-top); background: rgba(4, 10, 15, .86); border-bottom: 1px solid var(--line-2); }
+.pbar-who { font-size: 13px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30vw; }
+.pbar-num { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--gfp); letter-spacing: .06em; white-space: nowrap; }
+.pstage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; padding: 10px; }
+.pstage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; box-shadow: 0 20px 60px rgba(0, 0, 0, .6); background: #fff; }
+.pstage img:not([src]) { visibility: hidden; }
+.pstage img.pop { animation: slideIn .35s var(--ease); }
+@keyframes slideIn { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
+.ploader { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.pfoot { flex: none; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); font-size: 12.5px; color: var(--dim); }
+.pfoot .i { width: 15px; height: 15px; color: var(--gfp); }
+.pptr, .laser-dot { position: fixed; left: 0; top: 0; z-index: 30; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, #fff 0 18%, #ff3347 32%, rgba(255, 51, 71, .35) 62%, transparent 72%); box-shadow: 0 0 18px 6px rgba(255, 51, 71, .45); transition: transform .07s linear; }
+.laser-dot { position: absolute; }
+.modal.over .modal-box { border-color: var(--actin); box-shadow: 0 30px 80px rgba(0, 0, 0, .6), 0 0 50px rgba(255, 77, 94, .25); }
+
+/* ---------- teacher: Present tab ---------- */
+.pr-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 18px; align-items: start; }
+.pr-card { padding: 20px; display: grid; gap: 14px; align-content: start; }
+.pr-help { color: var(--text-2); line-height: 1.6; padding: 12px 14px; border-radius: 8px; background: rgba(106, 151, 255, .08); border: 1px solid rgba(106, 151, 255, .2); }
+.pr-help b { color: var(--text); }
+.pr-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; max-height: 52vh; overflow: auto; padding: 2px; }
+.pr-th { position: relative; margin: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--line-2); background: #fff; }
+.pr-th img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; }
+.pr-th figcaption { position: absolute; left: 6px; bottom: 6px; padding: 1px 7px; border-radius: 4px; background: rgba(2, 6, 10, .8); font-family: var(--mono); font-size: 11.5px; }
+.pr-del { position: absolute; top: 5px; right: 5px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; border: 0; background: rgba(2, 6, 10, .78); color: #ff8793; opacity: 0; transition: opacity .15s; }
+.pr-th:hover .pr-del { opacity: 1; }
+.pr-del .i { width: 14px; height: 14px; }
+.pr-row { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.kind-tag { display: inline-block; margin-right: 8px; padding: 1px 7px; border-radius: 4px; vertical-align: 2px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dapi); background: var(--dapi-soft); }
+
+/* ---------- teacher: presenting inside the live screen ---------- */
+.pres-box { display: none; }
+body.presenting .pres-box { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 14px; align-items: start; }
+.ps-main { padding: 12px; display: grid; gap: 10px; min-width: 0; }
+.ps-stage { position: relative; display: grid; place-items: center; height: min(46vh, 520px); border-radius: 8px; background: #000; overflow: hidden; }
+.ps-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.ps-stage img:not([src]), .ps-next img:not([src]) { visibility: hidden; }
+.ps-ctrl { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ps-num { font-family: var(--mono); font-size: 16px; min-width: 70px; text-align: center; }
+.ps-keys { margin-left: auto; }
+.ps-next { padding: 10px; display: grid; gap: 8px; }
+.ps-next img { width: 100%; border-radius: 4px; background: #fff; aspect-ratio: 16 / 9; object-fit: contain; opacity: .9; }
+.ps-strip { grid-column: 1 / -1; display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 8px; }
+.ps-mini { position: relative; flex: none; width: 112px; padding: 0; border: 2px solid transparent; border-radius: 6px; overflow: hidden; background: #fff; opacity: .7; transition: opacity .15s, border-color .15s; }
+.ps-mini:hover { opacity: 1; }
+.ps-mini.on { border-color: var(--gfp); opacity: 1; box-shadow: 0 0 14px rgba(70, 240, 143, .4); }
+.ps-mini img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; }
+.ps-mini span { position: absolute; left: 4px; bottom: 3px; padding: 0 5px; border-radius: 3px; background: rgba(2, 6, 10, .8); color: var(--text); font-family: var(--mono); font-size: 10.5px; }
+.laser-btn.on { color: #ff8793; border-color: #ff4d5e; background: var(--actin-soft); }
+body.laser #psImg, body.laser #pfImg { cursor: none; }
+
+/* full screen for the projector */
+.pres-full { position: fixed; inset: 0; z-index: 140; background: #000; display: grid; place-items: center; }
+.pf-stage { position: relative; width: 100vw; height: 100vh; display: grid; place-items: center; }
+.pf-stage img { max-width: 100vw; max-height: 100vh; object-fit: contain; }
+.pf-bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 10px; background: rgba(10, 16, 22, .82); border: 1px solid var(--line-2); opacity: 0; transition: opacity .25s; }
+.pres-full:hover .pf-bar, .pf-bar:focus-within { opacity: 1; }
+.pf-bar span { font-family: var(--mono); font-size: 14px; padding: 0 10px; }
+.pf-btn { height: 34px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-2); background: transparent; color: var(--text); font-size: 13px; }
+.pf-btn:hover { border-color: var(--line-3); background: rgba(150, 220, 245, .08); }
+.pf-alert { position: fixed; top: 14px; right: 14px; padding: 5px 12px; border-radius: 16px; border: 1px solid #ff4d5e; background: rgba(60, 4, 12, .9); color: #ff8793; font-family: var(--mono); font-size: 13px; font-weight: 600; }
+.pf-alert.pulse { animation: pfPulse 1s ease 3; }
+@keyframes pfPulse { 50% { box-shadow: 0 0 0 10px rgba(255, 77, 94, .25); } }
+@media (max-width: 1100px) { .pr-layout { grid-template-columns: 1fr; } body.presenting .pres-box { grid-template-columns: 1fr; } .ps-next { display: none; } }

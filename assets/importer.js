@@ -145,5 +145,60 @@ window.Importer = (function () {
     });
   }
 
-  return { read, parse };
+  // ---------------------------------------------------------------- slides for a presentation
+  // A browser can't open .pptx, so PowerPoint decks come in as PDF (File → Export → PDF).
+  // Every page becomes one sharp picture; WebP where the browser can make it (half the size of JPEG).
+  const SLIDE_W = 1600, MAX_SLIDES = 150;
+  function slidePic(c) {
+    const w = c.toDataURL('image/webp', 0.8);
+    return w.startsWith('data:image/webp') ? w : c.toDataURL('image/jpeg', 0.8);
+  }
+  function fileToCanvas(file) {
+    return new Promise((res, rej) => {
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, SLIDE_W / img.width), c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url); res(c);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error(file.name + ' could not be opened.')); };
+      img.src = url;
+    });
+  }
+  async function readSlides(files, progress) {
+    progress = progress || (() => {});
+    files = Array.from(files || []);
+    if (!files.length) throw new Error('No file chosen.');
+    const bad = files.find(f => /\.(pptx?|key|odp)$/i.test(f.name));
+    if (bad) throw new Error('PowerPoint files can\'t be opened in a web browser. In PowerPoint press File → Export → Create PDF, then upload the PDF. (Google Slides: File → Download → PDF.)');
+    const slides = [];
+    for (const f of files) {
+      const name = f.name.toLowerCase();
+      if (name.endsWith('.pdf') || f.type === 'application/pdf') {
+        progress('Opening the PDF…');
+        await load(LIBS.pdf);
+        pdfjsLib.GlobalWorkerOptions.workerSrc = LIBS.pdfWorker;
+        const doc = await pdfjsLib.getDocument({ data: await readBuf(f) }).promise;
+        const n = Math.min(doc.numPages, MAX_SLIDES - slides.length);
+        for (let i = 1; i <= n; i++) {
+          progress(`Making slide ${slides.length + 1} (page ${i} of ${n})…`);
+          const page = await doc.getPage(i);
+          const base = page.getViewport({ scale: 1 });
+          const vp = page.getViewport({ scale: SLIDE_W / Math.max(base.width, base.height * 16 / 9) });
+          const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+          const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+          await page.render({ canvasContext: g, viewport: vp }).promise;
+          slides.push(slidePic(c));
+        }
+      } else if (f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif)$/.test(name)) {
+        progress(`Adding picture ${slides.length + 1}…`);
+        slides.push(slidePic(await fileToCanvas(f)));
+      } else throw new Error(f.name + ': please upload a PDF of the slides or pictures.');
+      if (slides.length >= MAX_SLIDES) break;
+    }
+    return slides;
+  }
+
+  return { read, parse, readSlides };
 })();
