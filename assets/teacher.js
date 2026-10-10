@@ -124,7 +124,7 @@
 
   async function openSession(code) {
     sessionSubs.forEach(u => u()); sessionSubs = [];
-    seenEvents.clear(); eventsPrimed = false; chatPrimed = false; lastStudentMsg = {};
+    seenEvents.clear(); eventsPrimed = false;
     Object.assign(S, { code, meta: null, students: {}, control: {}, events: {}, key: {}, questions: [], paper: null, overrides: {}, selected: null });
     rowEls.clear(); $('#roster').innerHTML = ''; feedKeys.clear(); $('#feed').innerHTML = '';
     closeStudent();
@@ -137,7 +137,7 @@
     $('#liveEmpty').classList.add('hidden'); $('#liveMain').classList.remove('hidden');
     $('#mCode').textContent = code;
     sessionSubs.push(B.on(P('meta'), m => { if (!m) return; S.meta = m; renderBar(); queue(); if (m.status === 'ended') setTimeout(finishSession, 1500); }));
-    sessionSubs.push(B.on(P('students'), s => { S.students = s || {}; checkChats(); queue(); }));
+    sessionSubs.push(B.on(P('students'), s => { S.students = s || {}; queue(); }));
     sessionSubs.push(B.on(P('control'), c => { S.control = c || {}; queue(); }));
     sessionSubs.push(B.on(P('overrides'), o => { S.overrides = o || {}; queue(); }));
     sessionSubs.push(B.on(P('events'), ev => onEvents(ev || {})));
@@ -262,12 +262,11 @@
     const s = S.students[id], st = statusOf(id), total = S.questions.length || 1;
     const sub = st === 'away' ? 'Left the test now' : st === 'locked' ? 'Locked · waiting for you'
       : st === 'submitted' && s.awayAfter ? 'Finished · outside the page now' : STATUS_TXT[st];
-    const un = unreadOf(id);
     return `<div class="s-av">${esc(initials(s.name))}</div>
       <div class="s-main"><div class="s-name">${esc(s.name)}</div><div class="s-sub">${esc(sub)}</div></div>
       <div class="s-right"><span class="s-prog">${s.answered || 0}/${S.questions.length}</span>
         <span class="s-bar"><i style="transform:scaleX(${(s.answered || 0) / total})"></i></span>
-        <span class="s-flags"><span class="s-msgbtn" data-msg="${id}" role="button" title="Send a private message">${icon('chat')}</span>${s.leaves ? `<span class="s-badge left" title="Times left the test">${icon('leave')}${s.leaves}</span>` : ''}${s.afterLeaves ? `<span class="s-badge after" title="Times left after finishing">${icon('leave')}${s.afterLeaves}</span>` : ''}${un ? `<span class="s-badge msg" title="New message">${icon('chat')}${un}</span>` : ''}</span></div>`;
+        <span class="s-flags"><span class="s-msgbtn" data-msg="${id}" role="button" title="Send a private message">${icon('chat')}</span>${s.leaves ? `<span class="s-badge left" title="Times left the test">${icon('leave')}${s.leaves}</span>` : ''}${s.afterLeaves ? `<span class="s-badge after" title="Times left after finishing">${icon('leave')}${s.afterLeaves}</span>` : ''}</span></div>`;
   }
   function renderRoster() {
     const host = $('#roster');
@@ -388,7 +387,6 @@
     $('#fpActions').dataset.sig = '';
     lastMirrorSig = ''; lastScrollY = -1; chatSig = '';
     renderStudent(); renderRoster();
-    markSeen(sid);
     if (opts && opts.chat) setTimeout(focusChat, 60);
   }
   // bring the private-message box into view and put the cursor in it
@@ -540,46 +538,21 @@
     if ($('#dt-log')._h !== html) { $('#dt-log')._h = html; $('#dt-log').innerHTML = html; }
   }
 
-  // ---------------- private chat (lives at students/<id>/chat, so only that student sees it)
-  let chatSig = '', chatPrimed = false, lastStudentMsg = {};
-  const chatOf = sid => Object.entries((S.students[sid] || {}).chat || {}).map(([k, m]) => Object.assign({ k }, m)).sort((a, b) => a.at - b.at);
-  const seenKey = sid => `bio-seen-${S.code}-${sid}`;
-  function seenAt(sid) { try { return Number(localStorage.getItem(seenKey(sid))) || 0; } catch (e) { return 0; } }
-  function markSeen(sid) {
-    const last = chatOf(sid).filter(m => m.from === 's').pop();
-    if (!last) return;
-    try { localStorage.setItem(seenKey(sid), String(last.at)); } catch (e) {}
-    queue();
-  }
-  const unreadOf = sid => { const t = seenAt(sid); return chatOf(sid).filter(m => m.from === 's' && m.at > t).length; };
-  function checkChats() {
-    for (const sid of Object.keys(S.students)) {
-      const last = chatOf(sid).filter(m => m.from === 's').pop();
-      if (!last) continue;
-      if (chatPrimed && lastStudentMsg[sid] !== last.k) {
-        if (S.selected === sid) markSeen(sid);
-        else {
-          play('msg');
-          EL.toast(`<b>${esc(S.students[sid].name)}</b> sent you a message<br><span class="muted">${esc(last.text).slice(0, 120)}</span>`, '', 8000, () => openStudent(sid));
-        }
-      }
-      lastStudentMsg[sid] = last.k;
-    }
-    chatPrimed = true;
-  }
+  // ---------------- messages to one student (one-way; stored at students/<id>/chat, so only that student sees them)
+  let chatSig = '';
+  const sentTo = sid => Object.entries((S.students[sid] || {}).chat || {}).map(([k, m]) => Object.assign({ k }, m)).filter(m => m.from === 't').sort((a, b) => a.at - b.at);
   function renderChat(sid) {
-    const s = S.students[sid], list = chatOf(sid);
-    $('#chatTo').textContent = 'only ' + (s.name || '').split(' ')[0] + ' sees this';
-    $('#chatTitle').textContent = 'Message ' + (s.name || '').split(' ')[0];
-    $('#chatInput').placeholder = 'Type a message to ' + (s.name || '').split(' ')[0] + '…';
-    const sig = sid + '|' + list.map(m => m.k).join(',');
+    const s = S.students[sid], list = sentTo(sid), first = (s.name || '').split(' ')[0];
+    $('#chatTitle').textContent = 'Message ' + first;
+    $('#chatTo').textContent = 'only ' + first + ' sees it · no replies';
+    $('#chatInput').placeholder = 'Type a message to ' + first + '…';
+    const sig = sid + '|' + list.map(m => m.k + (m.seen ? 's' : '')).join(',');
     if (sig === chatSig) return;
     chatSig = sig;
     const host = $('#chatList');
-    host.innerHTML = list.length ? list.map(m => `<div class="bubble ${m.from === 't' ? 'me' : 'them'}">${esc(m.text)}<time>${EL.clock(m.at).slice(0, 5)}${m.from === 't' && m.seen ? ' · seen' : ''}</time></div>`).join('')
-      : `<div class="chat-empty">${icon('chat')}<br>Send ${esc((s.name || '').split(' ')[0])} a private message.<br>It pops up on their screen.</div>`;
+    host.innerHTML = list.length ? list.map(m => `<div class="bubble me">${esc(m.text)}<time>${EL.clock(m.at).slice(0, 5)} · ${m.seen ? 'seen ✓' : 'sent'}</time></div>`).join('')
+      : `<div class="chat-empty">${icon('chat')}<br>Send ${esc(first)} a message.<br>It pops up on their screen. They can't reply.</div>`;
     host.scrollTop = host.scrollHeight;
-    markSeen(sid);
   }
   function sendChat(text) {
     text = String(text || '').trim(); if (!text || !S.selected) return;

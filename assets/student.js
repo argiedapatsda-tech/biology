@@ -13,7 +13,6 @@
     ['join', 'joining', 'wait', 'count', 'test', 'done', 'msg'].forEach(s => $('#scr-' + s).classList.toggle('hidden', s !== id));
     document.body.className = document.body.className.replace(/\bs-\w+/g, '').trim() + ' s-' + id;
     stage = id;
-    $('#chatFab').classList.toggle('hidden', !['wait', 'test'].includes(id));
   }
   const wait = ms => new Promise(r => setTimeout(r, ms));
   function event(type, extra) { try { B.push(`sessions/${code}/events`, Object.assign({ sid: uid, name, type, at: B.now() }, extra || {})); } catch (e) { console.error(e); } }
@@ -251,7 +250,7 @@
         document.body.classList.add('locked');
         EL.vault($('#vLock'), 'lock', false);
         $('#lkTime').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        if (document.activeElement && document.activeElement.id !== 'sChatInput') document.activeElement.blur();
+        if (document.activeElement) document.activeElement.blur();
       }
       $('#lkCount').textContent = leaves;
       ov.querySelector('h1').textContent = byLeave ? 'You left the test' : 'Paused by your teacher';
@@ -268,49 +267,23 @@
     wasLocked = locked;
   }
 
-  // ---------------------------------------------------------------- private chat with the teacher
-  let chatList = [], chatPrimed = false, lastTeacherKey = null, unread = 0;
+  // ---------------------------------------------------------------- messages from the teacher (one-way: students can't reply)
+  let msgPrimed = false, lastMsgKey = null, shownKey = null;
   function onChat(c) {
-    chatList = Object.entries(c).map(([k, m]) => Object.assign({ k }, m)).sort((a, b) => a.at - b.at);
-    const lastT = chatList.filter(m => m.from === 't').pop();
-    if (lastT && chatPrimed && lastT.k !== lastTeacherKey) {
+    const lastT = Object.entries(c).map(([k, m]) => Object.assign({ k }, m)).filter(m => m.from === 't').sort((a, b) => a.at - b.at).pop();
+    if (lastT && lastT.k !== lastMsgKey && (msgPrimed || !lastT.seen)) {
       sfx.msg();
-      if ($('#chatSheet').classList.contains('hidden')) {
-        unread++;
-        $('#incomingTxt').textContent = lastT.text;
-        $('#incoming').classList.remove('hidden');
-      } else markRead();
+      shownKey = lastT.k;
+      $('#incomingTxt').textContent = lastT.text;
+      $('#incomingTime').textContent = EL.clock(lastT.at).slice(0, 5);
+      $('#incoming').classList.remove('hidden');
     }
-    if (lastT) lastTeacherKey = lastT.k;
-    chatPrimed = true;
-    paintFab(); paintChat();
+    if (lastT) lastMsgKey = lastT.k;
+    msgPrimed = true;
   }
-  function paintFab() {
-    const fab = $('#chatFab'); let d = fab.querySelector('.dot');
-    if (unread && !d) { d = document.createElement('span'); d.className = 'dot'; fab.appendChild(d); }
-    if (d) { if (unread) d.textContent = unread; else d.remove(); }
-  }
-  function paintChat() {
-    const host = $('#sChatList');
-    host.innerHTML = chatList.length ? chatList.map(m => `<div class="bubble ${m.from === 's' ? 'me' : 'them'}">${esc(m.text)}<time>${EL.clock(m.at).slice(0, 5)}</time></div>`).join('')
-      : '<div class="chat-empty">Stuck or confused? Ask your teacher here.<br>ถ้าสงสัย พิมพ์ถามครูได้ที่นี่</div>';
-    host.scrollTop = host.scrollHeight;
-  }
-  function markRead() {
-    unread = 0; paintFab();
-    const lastT = chatList.filter(m => m.from === 't').pop();
-    if (lastT && !lastT.seen) B.update(P() + '/chat/' + lastT.k, { seen: true });
-  }
-  function openChat() { $('#incoming').classList.add('hidden'); $('#chatSheet').classList.remove('hidden'); markRead(); paintChat(); setTimeout(() => $('#sChatInput').focus(), 50); }
-  $('#chatFab').addEventListener('click', openChat);
-  $('#incReply').addEventListener('click', openChat);
-  $('#incOk').addEventListener('click', () => { $('#incoming').classList.add('hidden'); markRead(); });
-  $('#chatClose').addEventListener('click', () => $('#chatSheet').classList.add('hidden'));
-  $('#sChatForm').addEventListener('submit', e => {
-    e.preventDefault();
-    const t = $('#sChatInput').value.trim(); if (!t || !code) return;
-    B.push(P() + '/chat', { from: 's', text: t.slice(0, 300), at: B.now() });
-    $('#sChatInput').value = ''; sfx.select();
+  $('#incOk').addEventListener('click', () => {
+    $('#incoming').classList.add('hidden');
+    if (shownKey) B.update(P() + '/chat/' + shownKey, { seen: true });   // lets the teacher see it was read
   });
 
   // ---------------------------------------------------------------- submit
@@ -334,7 +307,7 @@
   }
   function finish(auto) {
     $('#lock').classList.add('hidden'); document.body.classList.remove('locked'); wasLocked = false;
-    $('#confirm').classList.add('hidden'); $('#chatSheet').classList.add('hidden'); $('#incoming').classList.add('hidden');
+    $('#confirm').classList.add('hidden');
     show('done');
     BioBG.setLevel(1);
     $('#doneTitle').textContent = auto ? 'Time is up. Test submitted.' : 'Test submitted';
@@ -350,7 +323,6 @@
     $('#doneTitle').textContent = 'Test closed';
     $('#doneLead').innerHTML = 'Your teacher has closed the test. You can close this page now.<span class="th">ครูปิดการสอบแล้ว ปิดหน้านี้ได้เลย</span>';
     $('#stayNote').classList.add('hidden');
-    $('#chatFab').classList.add('hidden');
   }
   function showResult(r) {
     lastResult = r;

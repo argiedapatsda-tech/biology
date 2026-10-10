@@ -9,7 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2302060a' stroke='%2346f08f' stroke-width='2.5'/%3E%3Cellipse cx='16' cy='16' rx='5' ry='4' fill='%236a97ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/app.css?v=20261010c">
+<link rel="stylesheet" href="assets/app.css?v=20261010d">
 </head>
 <body class="s-join">
 <div class="scalebar" aria-hidden="true"><i></i>20 µm</div>
@@ -68,7 +68,7 @@
     <ul class="rules">
       <li><i data-icon="tests"></i><span>Stay on this page for the whole test.<em>อยู่ในหน้านี้ตลอดการสอบ</em></span></li>
       <li class="warn"><i data-icon="lock"></i><span>If you leave (home screen, another app or tab), the test <b>locks</b>. Only your teacher can unlock it.<em>ถ้าออกจากหน้านี้ ข้อสอบจะล็อก และครูเท่านั้นที่ปลดล็อกได้</em></span></li>
-      <li><i data-icon="eye"></i><span>Your teacher can see your screen live and can message you.<em>ครูเห็นหน้าจอของคุณแบบสดและส่งข้อความถึงคุณได้</em></span></li>
+      <li><i data-icon="eye"></i><span>Your teacher can see your screen live and may send you a message.<em>ครูเห็นหน้าจอของคุณแบบสดและอาจส่งข้อความถึงคุณ</em></span></li>
     </ul>
     <div class="standby"><span class="dots"><i></i><i></i><i></i></span>Waiting for your teacher to start · รอครูเริ่มการสอบ</div>
   </section>
@@ -136,19 +136,11 @@
   </div>
 </div>
 
-<!-- ========== CHAT WITH TEACHER ========== -->
-<button class="chat-fab hidden" id="chatFab" type="button"><i data-icon="chat"></i><span>Message teacher</span></button>
-<div class="incoming hidden" id="incoming">
-  <span class="label">Message from your teacher · ข้อความจากครู</span>
+<!-- ========== MESSAGE FROM THE TEACHER (read only) ========== -->
+<div class="incoming hidden" id="incoming" role="alert">
+  <span class="label">Message from your teacher · ข้อความจากครู · <span id="incomingTime"></span></span>
   <p id="incomingTxt"></p>
-  <div class="row"><button class="btn sm" id="incOk" type="button">OK</button><button class="btn sm primary" id="incReply" type="button">Reply</button></div>
-</div>
-<div class="chat-sheet hidden" id="chatSheet">
-  <div class="sheet-box">
-    <div class="chat-head"><i data-icon="chat"></i><b>Your teacher</b><span>Only your teacher sees this</span><button class="btn sm iconbtn ghost" id="chatClose" type="button" title="Close"><i data-icon="x"></i></button></div>
-    <div class="chat-list" id="sChatList"></div>
-    <form class="chat-form" id="sChatForm"><input class="input" id="sChatInput" maxlength="300" placeholder="Ask your teacher… · ถามครู" autocomplete="off"><button class="btn primary" type="submit">Send</button></form>
-  </div>
+  <div class="row"><button class="btn sm primary" id="incOk" type="button">OK, got it · รับทราบ</button></div>
 </div>
 
 <!-- ========== CONFIRM ========== -->
@@ -164,12 +156,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="assets/config.js?v=20261010c"></script>
-<script src="assets/backend.js?v=20261010c"></script>
-<script src="assets/common.js?v=20261010c"></script>
-<script src="assets/bio-bg.js?v=20261010c"></script>
-<script src="assets/biosprites.js?v=20261010c"></script>
-<script src="assets/games.js?v=20261010c"></script>
-<script src="assets/student.js?v=20261010c"></script>
+<script src="assets/config.js?v=20261010d"></script>
+<script src="assets/backend.js?v=20261010d"></script>
+<script src="assets/common.js?v=20261010d"></script>
+<script src="assets/bio-bg.js?v=20261010d"></script>
+<script src="assets/biosprites.js?v=20261010d"></script>
+<script src="assets/games.js?v=20261010d"></script>
+<script src="assets/student.js?v=20261010d"></script>
 </body>
 </html>
