@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#05060a">
+<title>ExamLock · Student</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='6' y='14' width='20' height='15' rx='5' fill='%238fb3ff'/%3E%3Cpath d='M11 14v-4a5 5 0 0 1 10 0v4' fill='none' stroke='%23dfe6f5' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/student.css">
+</head>
+<body class="s-join">
+<div class="aurora"><i></i><i></i><i></i></div>
+<canvas id="hero" class="hero3d"></canvas>
+<div class="noise"></div>
+
+<header class="brandbar">
+  <div class="brand"><span class="brand-dot"></span>ExamLock</div>
+  <div class="secure-pill"><span class="pulse"></span>Secure exam session</div>
+</header>
+
+<!-- ========== JOIN ========== -->
+<main id="scr-join" class="screen">
+  <section class="join-card glass">
+    <div class="eyebrow accent">Student · นักเรียน</div>
+    <h1>Join your test</h1>
+    <p class="muted lead">Enter the code from your teacher and your full name.<br><span class="th">ใส่รหัสจากครูและชื่อ-นามสกุลของคุณ</span></p>
+    <form id="joinForm" autocomplete="off">
+      <label class="field"><span>Test code · รหัสข้อสอบ</span>
+        <div class="codebox">
+          <input id="code" maxlength="5" inputmode="text" autocapitalize="characters" spellcheck="false" class="code-input" aria-label="Test code">
+          <div class="code-cells"><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+      </label>
+      <label class="field"><span>Full name · ชื่อ-นามสกุล</span>
+        <input id="name" class="input big" maxlength="40" placeholder="e.g. Somchai Jaidee" autocapitalize="words">
+      </label>
+      <div class="err" id="joinErr"></div>
+      <button class="btn primary wide" id="joinBtn" type="submit">Join test</button>
+    </form>
+    <div class="checks" id="checks"></div>
+  </section>
+</main>
+
+<!-- ========== JOINING (lock animation plays on the 3D canvas) ========== -->
+<main id="scr-joining" class="screen hidden">
+  <div class="joining">
+    <div class="eyebrow" id="jStage">Verifying</div>
+    <div class="j-title" id="jTitle"></div>
+    <div class="j-bar"><i id="jBar"></i></div>
+  </div>
+</main>
+
+<!-- ========== WAITING ROOM ========== -->
+<main id="scr-wait" class="screen hidden">
+  <section class="wait-card glass">
+    <div class="who">
+      <div class="avatar" id="avatar"></div>
+      <div class="who-txt"><div class="who-name" id="wName"></div><div class="muted small" id="wDevice"></div></div>
+      <span class="chip ok"><span class="pulse"></span>Connected</span>
+    </div>
+    <div class="test-info">
+      <div class="eyebrow">Test</div>
+      <div class="test-title" id="wTitle"></div>
+      <div class="muted" id="wMeta"></div>
+    </div>
+    <ul class="rules">
+      <li><span class="ri"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span>
+        <span>Stay on this page for the whole test.<em>อยู่ในหน้านี้ตลอดการสอบ</em></span></li>
+      <li class="warn"><span class="ri"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
+        <span>If you leave (home screen, another app or tab), the test <b>locks</b>. Only your teacher can unlock it.<em>ถ้าออกจากหน้านี้ ข้อสอบจะล็อก และครูเท่านั้นที่ปลดล็อกได้</em></span></li>
+      <li><span class="ri"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+        <span>Your teacher can see your screen live.<em>ครูเห็นหน้าจอของคุณแบบสด</em></span></li>
+    </ul>
+    <div class="standby"><span class="dots"><i></i><i></i><i></i></span>Waiting for your teacher to start · รอครูเริ่มการสอบ</div>
+  </section>
+</main>
+
+<!-- ========== COUNTDOWN ========== -->
+<main id="scr-count" class="screen hidden">
+  <div class="count"><div class="eyebrow">Test starts in</div><div class="count-n" id="countN">3</div></div>
+</main>
+
+<!-- ========== TEST ========== -->
+<div id="scr-test" class="hidden">
+  <header class="tbar">
+    <div class="tb-left"><span class="live-dot"></span><div class="tb-name" id="tTitle"></div></div>
+    <div class="tb-mid"><div class="prog"><div class="prog-fill" id="progFill"></div></div><div class="small mono" id="progTxt">0 / 0</div></div>
+    <div class="timer mono" id="timer">--:--</div>
+  </header>
+  <div class="test-wrap">
+    <div class="test-who small muted" id="tAgent"></div>
+    <div id="qlist"></div>
+    <div class="submit-zone glass">
+      <div><div class="sz-t">Finished?</div><div class="muted small" id="submitHint"></div></div>
+      <button class="btn primary" id="submitBtn" type="button">Submit test</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== DONE ========== -->
+<main id="scr-done" class="screen hidden">
+  <section class="done-card glass">
+    <div class="done-ico"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+    <h2 id="doneTitle">Test submitted</h2>
+    <p class="muted">ส่งข้อสอบเรียบร้อยแล้ว · You can close this page when your teacher says so.</p>
+    <div class="result hidden" id="result">
+      <div class="eyebrow">Your score</div>
+      <div class="score" id="scoreTxt"></div>
+      <div class="scorebar"><i id="scoreBar"></i></div>
+    </div>
+    <div class="muted small" id="doneWait">Your score appears here when your teacher releases it.</div>
+  </section>
+</main>
+
+<!-- ========== MESSAGE ========== -->
+<main id="scr-msg" class="screen hidden">
+  <section class="done-card glass"><div class="eyebrow red" id="msgTag">Session ended</div><h2 id="msgTitle"></h2><p class="muted" id="msgBody"></p></section>
+</main>
+
+<!-- ========== LOCK OVERLAY ========== -->
+<div id="lock" class="lock hidden" role="alertdialog" aria-live="assertive">
+  <div class="lock-card">
+    <div class="eyebrow red">Test locked · ข้อสอบถูกล็อก</div>
+    <h1>You left the test</h1>
+    <p class="lock-msg" id="lockMsg">Your teacher has been notified. Raise your hand. Only your teacher can unlock this screen.</p>
+    <p class="lock-th">คุณออกจากหน้าข้อสอบ ระบบแจ้งครูแล้ว กรุณายกมือ ครูเท่านั้นที่ปลดล็อกได้</p>
+    <div class="lock-stats">
+      <div><span>Times left</span><b id="lkCount">1</b></div>
+      <div><span>Locked at</span><b id="lkTime">--</b></div>
+      <div><span>Status</span><b class="blink">Waiting for teacher</b></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== CONFIRM ========== -->
+<div id="confirm" class="modal hidden">
+  <div class="modal-box glass">
+    <div class="eyebrow amber">Submit test?</div>
+    <h3 id="cfTitle">Send your answers?</h3>
+    <p class="muted" id="cfBody"></p>
+    <div class="modal-actions"><button class="btn" id="cfNo" type="button">Keep working</button><button class="btn primary" id="cfYes" type="button">Submit</button></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="assets/config.js"></script>
+<script src="assets/backend.js"></script>
+<script src="assets/common.js"></script>
+<script src="assets/fx.js"></script>
+<script src="assets/student.js"></script>
+</body>
+</html>
