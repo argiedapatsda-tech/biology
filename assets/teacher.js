@@ -660,7 +660,7 @@
       <p class="muted">${online ? 'Students can join from any iPad with the link below.' : 'Right now everything stays inside this one browser. Connect the free Firebase database to use real iPads.'}</p>
       <div class="card"><div class="eyebrow">Student link</div><div class="copyrow" style="margin-top:8px"><code id="stuLink">${esc(studentURL())}</code><button class="btn sm" data-copy="stuLink">Copy</button><a class="btn sm" href="${esc(studentURL())}" target="_blank">Open</a></div></div>
       <h3>Lock the iPad for real</h3>
-      <div class="card warn"><p style="margin-top:0">A website can't stop an iPad from going to the home screen. ExamLock <b>notices</b> right away, alerts you and locks the test until you unlock it. To <b>block</b> leaving completely, add one of these:</p>
+      <div class="card warn"><p style="margin-top:0">A website can't stop an iPad from going to the home screen. This website <b>notices</b> right away, alerts you and locks the test until you unlock it. To <b>block</b> leaving completely, add one of these:</p>
       <p><b>Guided Access (built into every iPad, free).</b> Settings → Accessibility → Guided Access → On. The student opens the test in Safari, triple-clicks the top button, and you type your passcode to start. They can't leave Safari until you end it.</p>
       <p style="margin-bottom:0"><b>Safe Exam Browser (free App Store app).</b> Full exam lockdown. It only exits with your password.</p></div>
       <h3>Connecting Firebase (one time)</h3>
