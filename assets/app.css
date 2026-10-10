@@ -431,6 +431,12 @@ select.input { appearance: none; padding-right: 32px; background-image: linear-g
 .bubble time { display: block; margin-top: 2px; font-family: var(--mono); font-size: 11px; opacity: .65; }
 .bubble.me { align-self: flex-end; background: var(--gfp); color: var(--gfp-ink); border-bottom-right-radius: 4px; }
 .bubble.them { align-self: flex-start; background: rgba(26, 46, 60, .9); border-bottom-left-radius: 4px; }
+.btn.msg { border-color: var(--gfp); color: var(--gfp); background: var(--gfp-soft); }
+.chat.flash { animation: chatflash 1.2s var(--ease); }
+@keyframes chatflash { 0%, 40% { box-shadow: inset 0 0 0 2px var(--gfp), 0 0 30px rgba(70, 240, 143, .35); } }
+.s-msgbtn { display: inline-grid; place-items: center; width: 24px; height: 19px; border-radius: 10px; color: var(--gfp); border: 1px solid rgba(70, 240, 143, .45); background: var(--gfp-soft); cursor: pointer; }
+.s-msgbtn .i { width: 12px; height: 12px; stroke-width: 2.2; }
+.s-msgbtn:hover { background: var(--gfp); color: var(--gfp-ink); }
 .quick { display: flex; gap: 6px; padding: 8px 12px; overflow-x: auto; scrollbar-width: none; border-top: 1px solid var(--line); }
 .quick::-webkit-scrollbar { display: none; }
 .quick button { flex: none; white-space: nowrap; border: 1px solid var(--line-2); background: transparent; color: var(--text-2); border-radius: 14px; padding: 4px 11px; font-size: 12.5px; }

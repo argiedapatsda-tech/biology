@@ -267,7 +267,7 @@
       <div class="s-main"><div class="s-name">${esc(s.name)}</div><div class="s-sub">${esc(sub)}</div></div>
       <div class="s-right"><span class="s-prog">${s.answered || 0}/${S.questions.length}</span>
         <span class="s-bar"><i style="transform:scaleX(${(s.answered || 0) / total})"></i></span>
-        <span class="s-flags">${s.leaves ? `<span class="s-badge left" title="Times left the test">${icon('leave')}${s.leaves}</span>` : ''}${s.afterLeaves ? `<span class="s-badge after" title="Times left after finishing">${icon('leave')}${s.afterLeaves}</span>` : ''}${un ? `<span class="s-badge msg" title="New message">${icon('chat')}${un}</span>` : ''}</span></div>`;
+        <span class="s-flags"><span class="s-msgbtn" data-msg="${id}" role="button" title="Send a private message">${icon('chat')}</span>${s.leaves ? `<span class="s-badge left" title="Times left the test">${icon('leave')}${s.leaves}</span>` : ''}${s.afterLeaves ? `<span class="s-badge after" title="Times left after finishing">${icon('leave')}${s.afterLeaves}</span>` : ''}${un ? `<span class="s-badge msg" title="New message">${icon('chat')}${un}</span>` : ''}</span></div>`;
   }
   function renderRoster() {
     const host = $('#roster');
@@ -303,7 +303,10 @@
     for (const [id, el] of rowEls) if (!S.students[id]) { el.remove(); rowEls.delete(id); }
   }
   $('#search').addEventListener('input', renderRoster);
-  $('#roster').addEventListener('click', e => { const r = e.target.closest('.srow'); if (r) openStudent(r.dataset.sid); });
+  $('#roster').addEventListener('click', e => {
+    const m = e.target.closest('[data-msg]'); if (m) { openStudent(m.dataset.msg, { chat: true }); return; }
+    const r = e.target.closest('.srow'); if (r) openStudent(r.dataset.sid);
+  });
 
   // who needs attention, listed above the roster so nobody has to move
   function renderAlerts() {
@@ -376,7 +379,7 @@
   }
 
   // ================================================================ one student: live screen, answers, chat
-  function openStudent(sid) {
+  function openStudent(sid, opts) {
     if (!S.students[sid]) return;
     go('live');
     S.selected = sid;
@@ -386,6 +389,14 @@
     lastMirrorSig = ''; lastScrollY = -1; chatSig = '';
     renderStudent(); renderRoster();
     markSeen(sid);
+    if (opts && opts.chat) setTimeout(focusChat, 60);
+  }
+  // bring the private-message box into view and put the cursor in it
+  function focusChat() {
+    const box = $('#chatBox'), inp = $('#chatInput');
+    box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    inp.focus({ preventScroll: true });
+    box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash');
   }
   function closeStudent() {
     S.selected = null;
@@ -416,7 +427,7 @@
     const sig = st + '|' + !!c.forceLock + '|' + !!c.kicked;
     if ($('#fpActions').dataset.sig !== sig) {
       $('#fpActions').dataset.sig = sig;
-      let h = '';
+      let h = `<button class="btn sm msg" data-dact="msg">${icon('chat')}Message</button>`;
       if (st === 'away' || st === 'locked') h += `<button class="btn sm green" data-dact="unlock">${icon('unlock')}Unlock</button>`;
       if (st !== 'submitted' && st !== 'kicked') h += c.forceLock ? `<button class="btn sm" data-dact="unfreeze">${icon('play')}Resume</button>` : `<button class="btn sm warn" data-dact="freeze">${icon('pause')}Pause</button>`;
       if (st !== 'kicked') h += `<button class="btn sm ghost" data-dact="kick" title="Remove from the test">${icon('trash')}</button>`;
@@ -430,6 +441,7 @@
   $('#fpActions').addEventListener('click', async e => {
     const b = e.target.closest('[data-dact]'); if (!b) return;
     const sid = S.selected, s = S.students[sid], a = b.dataset.dact;
+    if (a === 'msg') return focusChat();
     if (a === 'unlock') unlock(sid);
     if (a === 'freeze') { B.update(P('control/' + sid), { forceLock: true }); B.push(P('events'), { sid, name: s.name, type: 'lock', at: B.now() }); }
     if (a === 'unfreeze') B.update(P('control/' + sid), { forceLock: false, unlockSeq: unlockTo(sid) });
@@ -558,6 +570,8 @@
   function renderChat(sid) {
     const s = S.students[sid], list = chatOf(sid);
     $('#chatTo').textContent = 'only ' + (s.name || '').split(' ')[0] + ' sees this';
+    $('#chatTitle').textContent = 'Message ' + (s.name || '').split(' ')[0];
+    $('#chatInput').placeholder = 'Type a message to ' + (s.name || '').split(' ')[0] + '…';
     const sig = sid + '|' + list.map(m => m.k).join(',');
     if (sig === chatSig) return;
     chatSig = sig;
