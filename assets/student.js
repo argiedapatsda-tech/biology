@@ -1,11 +1,12 @@
 (function () {
   const B = Backend, { $, esc, sfx } = EL;
   EL.paintIcons();
+  BioBG.start({ level: 1 });
   const params = new URLSearchParams(location.search);
 
   let code = null, uid = null, name = '', meta = null, questions = [], paper = null, order = [], answers = {}, control = {};
   let stage = 'join', lockSeq = 0, leaves = 0, awayMs = 0, away = false, awayStart = 0, submitted = false, wasLocked = false;
-  let timerInt = null, lastResult = null;
+  let timerInt = null, lastResult = null, closed = false, afterAway = false, afterLeaves = 0, gamesOn = false;
   const P = () => `sessions/${code}/students/${uid}`;
 
   function show(id) {
@@ -140,12 +141,13 @@
       startTest();
     }
     if (m.status === 'ended' && (stage === 'test' || stage === 'wait' || stage === 'count')) submit(true);
-    if (stage === 'done') showResult(lastResult);
+    if (stage === 'done') { showResult(lastResult); if (m.status === 'ended') closedByTeacher(); }
   }
 
   // ---------------------------------------------------------------- test
   function startTest() {
     show('test');
+    BioBG.setLevel(.4);   // calmer while answering
     $('#tTitle').textContent = meta.title || 'Test';
     $('#tWho').textContent = name + ' · code ' + code;
     $('#qlist').innerHTML = EL.renderTest(questions, order, answers, { paper });
@@ -212,6 +214,12 @@
 
   // ---------------------------------------------------------------- leave detection + lock
   function goAway(reason) {
+    if (stage === 'done' && submitted && !closed && code && !afterAway) {
+      afterAway = true; afterLeaves++;
+      B.update(P(), { awayAfter: true, afterLeaves });
+      event('leftafter', { reason });
+      return;
+    }
     if (stage !== 'test' || submitted || away) return;
     away = true; awayStart = Date.now();
     lockSeq++; leaves++;
@@ -220,6 +228,7 @@
     event('left', { reason });
   }
   function comeBack() {
+    if (afterAway) { afterAway = false; B.update(P(), { awayAfter: false }); event('backafter'); return; }
     if (!away) return;
     away = false;
     const ms = Date.now() - awayStart; awayMs += ms;
@@ -327,9 +336,21 @@
     $('#lock').classList.add('hidden'); document.body.classList.remove('locked'); wasLocked = false;
     $('#confirm').classList.add('hidden'); $('#chatSheet').classList.add('hidden'); $('#incoming').classList.add('hidden');
     show('done');
+    BioBG.setLevel(1);
     $('#doneTitle').textContent = auto ? 'Time is up. Test submitted.' : 'Test submitted';
+    if (!gamesOn) { gamesOn = true; Games.mount($('#gameHost')); }
+    if (meta && meta.status === 'ended') closedByTeacher();
     sfx.ok();
     showResult(lastResult);
+  }
+  // the teacher ended the test: nothing more to watch, the student may close the page
+  function closedByTeacher() {
+    if (closed) return;
+    closed = true;
+    $('#doneTitle').textContent = 'Test closed';
+    $('#doneLead').innerHTML = 'Your teacher has closed the test. You can close this page now.<span class="th">ครูปิดการสอบแล้ว ปิดหน้านี้ได้เลย</span>';
+    $('#stayNote').classList.add('hidden');
+    $('#chatFab').classList.add('hidden');
   }
   function showResult(r) {
     lastResult = r;

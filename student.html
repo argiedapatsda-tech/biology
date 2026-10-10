@@ -4,14 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#121310">
+<meta name="theme-color" content="#02060a">
 <title>Biology · Student</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23f0d047'/%3E%3Cpath d='M9 23c0-8 5-13 14-13 0 9-5 13-13 13M9 23l7-7' fill='none' stroke='%232a2405' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2302060a' stroke='%2346f08f' stroke-width='2.5'/%3E%3Cellipse cx='16' cy='16' rx='5' ry='4' fill='%236a97ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:opsz,wght@8..60,400..700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=Noto+Serif+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/app.css">
 </head>
 <body class="s-join">
+<div class="scalebar" aria-hidden="true"><i></i>20 µm</div>
 
 <header class="brandbar">
   <span class="brand"><span class="brand-mark"><i data-icon="leaf"></i></span><span>Biology</span></span>
@@ -97,16 +98,20 @@
 
 <!-- ========== DONE ========== -->
 <main id="scr-done" class="screen hidden">
-  <section class="s-card panel">
-    <div class="done-ico"><i data-icon="check"></i></div>
-    <h1 id="doneTitle" style="font-size:28px">Test submitted</h1>
-    <p class="lead">You can close this page when your teacher says so.<span class="th">ส่งข้อสอบเรียบร้อยแล้ว</span></p>
+  <section class="s-card wide">
+    <div class="done-head"><div class="done-ico"><i data-icon="check"></i></div>
+      <div><h1 id="doneTitle">Test submitted</h1><p class="lead" id="doneLead">Wait here until your teacher closes the test.<span class="th">ส่งข้อสอบแล้ว รอครูปิดการสอบ</span></p></div></div>
     <div class="result hidden" id="result">
       <span class="label">Your score</span>
       <div class="score" id="scoreTxt"></div>
       <div class="scorebar"><i id="scoreBar"></i></div>
     </div>
     <div class="muted small" id="doneWait">Your score appears here when your teacher releases it.</div>
+    <div class="stay-note" id="stayNote"><i data-icon="eye"></i><span>Stay on this page. Your teacher still sees if you leave it. · อยู่ในหน้านี้ ครูยังเห็นถ้าคุณออก</span></div>
+    <div class="games" id="gamesBox">
+      <div class="games-head"><b>While you wait</b><span class="small muted">Three quick biology games</span></div>
+      <div id="gameHost"></div>
+    </div>
   </section>
 </main>
 
@@ -162,6 +167,8 @@
 <script src="assets/config.js"></script>
 <script src="assets/backend.js"></script>
 <script src="assets/common.js"></script>
+<script src="assets/bio-bg.js"></script>
+<script src="assets/games.js"></script>
 <script src="assets/student.js"></script>
 </body>
 </html>

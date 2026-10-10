@@ -1,6 +1,7 @@
 (function () {
   const B = Backend, { $, $$, esc, sfx, icon } = EL;
   EL.paintIcons();
+  BioBG.start({ level: .85 });
   const S = {
     uid: null, code: null, meta: null, students: {}, control: {}, events: {}, key: {}, questions: [], paper: null, overrides: {},
     selected: null, tab: 'screen', zoom: 'read', tests: {}, history: {}, editing: null, dirty: false, sound: true
@@ -259,13 +260,14 @@
   }
   function rowHTML(id) {
     const s = S.students[id], st = statusOf(id), total = S.questions.length || 1;
-    const sub = st === 'away' ? 'Left the test now' : st === 'locked' ? 'Locked · waiting for you' : STATUS_TXT[st];
+    const sub = st === 'away' ? 'Left the test now' : st === 'locked' ? 'Locked · waiting for you'
+      : st === 'submitted' && s.awayAfter ? 'Finished · outside the page now' : STATUS_TXT[st];
     const un = unreadOf(id);
     return `<div class="s-av">${esc(initials(s.name))}</div>
       <div class="s-main"><div class="s-name">${esc(s.name)}</div><div class="s-sub">${esc(sub)}</div></div>
       <div class="s-right"><span class="s-prog">${s.answered || 0}/${S.questions.length}</span>
         <span class="s-bar"><i style="transform:scaleX(${(s.answered || 0) / total})"></i></span>
-        <span class="s-flags">${s.leaves ? `<span class="s-badge left" title="Times left the test">${icon('leave')}${s.leaves}</span>` : ''}${un ? `<span class="s-badge msg" title="New message">${icon('chat')}${un}</span>` : ''}</span></div>`;
+        <span class="s-flags">${s.leaves ? `<span class="s-badge left" title="Times left the test">${icon('leave')}${s.leaves}</span>` : ''}${s.afterLeaves ? `<span class="s-badge after" title="Times left after finishing">${icon('leave')}${s.afterLeaves}</span>` : ''}${un ? `<span class="s-badge msg" title="New message">${icon('chat')}${un}</span>` : ''}</span></div>`;
   }
   function renderRoster() {
     const host = $('#roster');
@@ -293,6 +295,7 @@
       if (el.dataset.st !== st) el.dataset.st = st;
       el.classList.toggle('alert', st === 'away' || st === 'locked');
       el.classList.toggle('dim', st === 'offline' || st === 'kicked');
+      el.classList.toggle('warnafter', st === 'submitted' && !!S.students[id].awayAfter);
       el.classList.toggle('sel', id === S.selected);
       el.classList.toggle('hidden', !!q && !(S.students[id].name || '').toLowerCase().includes(q));
       el.title = S.students[id].name || '';
@@ -325,7 +328,7 @@
   const EV_TXT = e => ({
     join: 'joined', rejoin: 'reconnected', reload: 'reloaded the page (locked)',
     left: 'left the test' + (e.reason ? ' · ' + e.reason.toLowerCase() : ''), back: 'came back after ' + EL.fmtDur(e.ms),
-    submit: e.auto ? 'was auto-submitted' : 'submitted', unlock: 'unlocked by you', lock: 'paused by you', kick: 'removed by you'
+    submit: e.auto ? 'was auto-submitted' : 'submitted', leftafter: 'left the page after finishing', backafter: 'came back after finishing', unlock: 'unlocked by you', lock: 'paused by you', kick: 'removed by you'
   }[e.type] || e.type);
   function onEvents(ev) {
     S.events = ev;
@@ -339,6 +342,10 @@
         play('emergency'); alarmLog[e.sid] = { n: 1, last: Date.now() };
         EL.toast(`<b>${esc(e.name)} left the test</b><br><span class="muted">${e.type === 'reload' ? 'They reloaded the page.' : 'Their screen is now locked.'} Click to view.</span>`, 'red', 7000, () => openStudent(e.sid));
       } else if (e.type === 'join') { play('join'); }
+      else if (e.type === 'leftafter') {
+        play('alarm');
+        EL.toast(`<b>${esc(e.name)} left the page after finishing</b><br><span class="muted">They may be looking things up for someone. Click to view.</span>`, 'amber', 8000, () => openStudent(e.sid));
+      }
       else if (e.type === 'submit') { play('ok'); EL.toast(`<b>${esc(e.name)}</b> ${e.auto ? 'was auto-submitted' : 'submitted'}`, 'amber', 3000); }
     }
     eventsPrimed = true;
