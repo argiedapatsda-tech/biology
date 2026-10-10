@@ -1,45 +1,30 @@
 (function () {
   const B = Backend, { $, esc, sfx } = EL;
+  EL.paintIcons();
   const params = new URLSearchParams(location.search);
 
-  // where the 3D lock sits for each screen (fractions of the visible area)
-  let heroMode = 'join';
-  const portrait = (w, h) => w / h < 1.1;
-  const LAYOUT = {
-    join:    (w, h) => portrait(w, h) ? { x: 0, y: 0.29, size: 0.3 } : { x: 0.24, y: -0.02, size: 0.62 },
-    joining: (w, h) => portrait(w, h) ? { x: 0, y: 0.12, size: 0.42 } : { x: 0, y: 0.1, size: 0.55 },
-    wait:    (w, h) => portrait(w, h) ? { x: 0, y: 0.33, size: 0.2 } : { x: 0.26, y: 0, size: 0.5 },
-    count:   (w, h) => portrait(w, h) ? { x: 0, y: 0.18, size: 0.32 } : { x: 0, y: 0.14, size: 0.42 },
-    lock:    (w, h) => portrait(w, h) ? { x: 0, y: 0.24, size: 0.32 } : { x: 0, y: 0.2, size: 0.42 },
-    done:    (w, h) => portrait(w, h) ? { x: 0, y: 0.3, size: 0.22 } : { x: 0.26, y: 0, size: 0.48 }
-  };
-  const hero = FX.lock($('#hero'), (w, h) => (LAYOUT[heroMode] || LAYOUT.join)(w, h));
-  function heroTo(mode) { heroMode = mode; hero.relayout && hero.relayout(); }
-
-  let code = null, uid = null, name = '', meta = null, questions = [], order = [], answers = {}, control = {};
+  let code = null, uid = null, name = '', meta = null, questions = [], paper = null, order = [], answers = {}, control = {};
   let stage = 'join', lockSeq = 0, leaves = 0, awayMs = 0, away = false, awayStart = 0, submitted = false, wasLocked = false;
   let timerInt = null, lastResult = null;
   const P = () => `sessions/${code}/students/${uid}`;
 
   function show(id) {
     ['join', 'joining', 'wait', 'count', 'test', 'done', 'msg'].forEach(s => $('#scr-' + s).classList.toggle('hidden', s !== id));
-    document.body.classList.remove('s-join', 's-joining', 's-wait', 's-count', 's-test', 's-done', 's-msg');
-    document.body.classList.add('s-' + id);
+    document.body.className = document.body.className.replace(/\bs-\w+/g, '').trim() + ' s-' + id;
     stage = id;
+    $('#chatFab').classList.toggle('hidden', !['wait', 'test'].includes(id));
   }
   const wait = ms => new Promise(r => setTimeout(r, ms));
   function event(type, extra) { try { B.push(`sessions/${code}/events`, Object.assign({ sid: uid, name, type, at: B.now() }, extra || {})); } catch (e) { console.error(e); } }
 
   // ---------------------------------------------------------------- join screen
-  async function boot() {
-    hero.setOpen(true); hero.setState('idle'); heroTo('join');
-    const tick = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-    const items = ['Secure connection', EL.detectBrowser(), B.mode === 'demo' ? 'Demo mode (this browser only)' : 'Encrypted'];
-    $('#checks').innerHTML = items.map((t, i) => `<span style="animation-delay:${0.4 + i * 0.25}s">${tick}${esc(t)}</span>`).join('');
+  function boot() {
+    EL.vault($('#vJoin'), 'idle', false);
     let saved = {}; try { saved = JSON.parse(localStorage.getItem('examlock-student') || '{}'); } catch (e) {}
     const c = (params.get('c') || saved.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
     $('#code').value = c; paintCode();
     if (saved.name) $('#name').value = saved.name;
+    if (c.length === 5 && !saved.name) setTimeout(() => $('#name').focus(), 300);
   }
   function paintCode() {
     const v = $('#code').value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
@@ -58,8 +43,8 @@
     const c = $('#code').value.trim().toUpperCase();
     const n = $('#name').value.trim().replace(/\s+/g, ' ');
     const err = $('#joinErr'); err.textContent = '';
-    if (c.length !== 5) { err.textContent = 'The test code has 5 characters.'; return; }
-    if (n.length < 2) { err.textContent = 'Please type your full name.'; return; }
+    if (c.length !== 5) { err.textContent = 'The test code has 5 characters. · รหัสมี 5 ตัว'; return; }
+    if (n.length < 2) { err.textContent = 'Please type your full name. · กรุณาพิมพ์ชื่อ-นามสกุล'; return; }
     $('#joinBtn').disabled = true; $('#joinBtn').textContent = 'Checking…';
     try {
       await B.authReady;
@@ -76,16 +61,17 @@
       console.error(ex);
       err.textContent = ex.message || String(ex);
       $('#joinBtn').disabled = false; $('#joinBtn').textContent = 'Join test';
-      show('join'); heroTo('join'); hero.setOpen(true); hero.setState('idle');
+      show('join');
     }
   });
 
   async function joinSequence() {
-    show('joining'); heroTo('joining'); hero.setState('scan');
+    show('joining');
+    EL.vault($('#vJoining'), 'idle', true);
     $('#jTitle').textContent = '';
     const bar = $('#jBar'), st = $('#jStage');
-    const steps = ['Verifying', 'Connecting to your teacher', 'Securing session'];
-    const t0 = performance.now(), dur = 1800;
+    const steps = ['Checking the code', 'Connecting to your teacher', 'Securing the test'];
+    const t0 = performance.now(), dur = 1500;
     await new Promise(res => {
       (function f(t) {
         const p = Math.min(1, (t - t0) / dur);
@@ -95,15 +81,16 @@
         if (p < 1) requestAnimationFrame(f); else res();
       })(t0);
     });
-    hero.snap(); hero.setState('ok'); sfx.clunk();
+    EL.vault($('#vJoining'), 'ok', false); sfx.clunk();
     st.textContent = 'Locked in';
-    EL.scramble($('#jTitle'), "You're in, " + name.split(' ')[0], 500);
-    await wait(1500);
+    $('#jTitle').textContent = "You're in, " + name.split(' ')[0];
+    await wait(1100);
   }
 
   async function enter() {
     const existing = await B.get(P());
-    questions = EL.asArray(await B.get(`sessions/${code}/questions`));
+    const split = EL.splitPaper(await B.get(`sessions/${code}/questions`));
+    questions = split.questions; paper = split.paper;
     const ids = questions.map(q => q.id);
     order = meta.shuffle ? EL.seededOrder(ids, uid) : ids;
     const device = EL.detectBrowser();
@@ -113,7 +100,8 @@
       // reopening or reloading during a live test counts as leaving the page
       const reentry = existing.status === 'testing' && !submitted;
       if (reentry) { lockSeq++; leaves++; }
-      await B.update(P(), { name, online: true, device, lastSeen: B.now(), lockSeq, leaves, order });
+      // a reload starts on the page again, so the "away" flag from before is cleared
+      await B.update(P(), { name, online: true, away: false, device, lastSeen: B.now(), lockSeq, leaves, order });
       event(reentry ? 'reload' : 'rejoin');
     } else {
       await B.set(P(), { name, device, joinedAt: B.now(), online: true, status: 'waiting', lockSeq: 0, leaves: 0, awayMs: 0, answered: 0, order, lastSeen: B.now() });
@@ -123,9 +111,10 @@
     B.on(`sessions/${code}/control/${uid}`, c => { control = c || {}; if (control.kicked) return removed(); evalLock(); });
     B.on(`sessions/${code}/results/${uid}`, r => showResult(r));
     B.on(`sessions/${code}/meta`, m => onMeta(m));
+    B.on(P() + '/chat', c => onChat(c || {}));
     if (submitted) return finish();
     paintWait();
-    show('wait'); heroTo('wait'); hero.setState('idle');
+    show('wait');
   }
 
   function paintWait() {
@@ -144,9 +133,9 @@
     if (stage === 'wait') paintWait();
     if (m.status === 'live' && stage === 'wait' && !starting) {
       starting = true;
-      show('count'); heroTo('count');
+      show('count');
       for (const n of [3, 2, 1]) {
-        const el = $('#countN'); el.textContent = n; el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); sfx.tick(); await wait(900);
+        const el = $('#countN'); el.textContent = n; el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); sfx.tick(); await wait(850);
       }
       startTest();
     }
@@ -156,10 +145,12 @@
 
   // ---------------------------------------------------------------- test
   function startTest() {
-    show('test'); setTimeout(() => { if (stage === 'test' && !document.body.classList.contains('locked')) hero.pause(); }, 700);
+    show('test');
     $('#tTitle').textContent = meta.title || 'Test';
-    $('#tAgent').textContent = name + ' · code ' + code;
-    $('#qlist').innerHTML = EL.renderTest(questions, order, answers);
+    $('#tWho').textContent = name + ' · code ' + code;
+    $('#qlist').innerHTML = EL.renderTest(questions, order, answers, { paper });
+    // page pictures change the page height once they load: tell the teacher's copy
+    document.querySelectorAll('#qlist img').forEach(img => img.addEventListener('load', () => sendView(), { once: true }));
     progress();
     B.update(P(), { status: 'testing', startedAt: B.now() });
     timerInt = setInterval(tickTimer, 500); tickTimer();
@@ -212,10 +203,10 @@
     const el = $('#timer');
     const tl = Number(meta.timeLimit) || 0;
     const start = meta.startedAt || B.now();
-    if (!tl) { el.textContent = EL.fmtTime(B.now() - start); el.className = 'timer mono'; return; }
+    if (!tl) { el.textContent = EL.fmtTime(B.now() - start); el.className = 'timer'; return; }
     const left = start + tl * 60000 + (Number(meta.extraMs) || 0) - B.now();
     el.textContent = EL.fmtTime(left);
-    el.className = 'timer mono' + (left < 60000 ? ' crit' : left < 300000 ? ' warn' : '');
+    el.className = 'timer' + (left < 60000 ? ' crit' : left < 300000 ? ' warn' : '');
     if (left <= 0 && !submitted) submit(true);
   }
 
@@ -249,9 +240,9 @@
       if (!wasLocked) {
         ov.classList.remove('hidden', 'unlocking');
         document.body.classList.add('locked');
-        hero.resume(); heroTo('lock'); hero.setState('lock'); hero.snap();
+        EL.vault($('#vLock'), 'lock', false);
         $('#lkTime').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        if (document.activeElement) document.activeElement.blur();
+        if (document.activeElement && document.activeElement.id !== 'sChatInput') document.activeElement.blur();
       }
       $('#lkCount').textContent = leaves;
       ov.querySelector('h1').textContent = byLeave ? 'You left the test' : 'Paused by your teacher';
@@ -260,15 +251,58 @@
         : 'Your teacher paused your screen. Please wait.';
     } else if (wasLocked) {
       ov.classList.add('unlocking');
-      hero.setState('ok'); hero.setOpen(true); sfx.granted();
-      setTimeout(() => {
-        ov.classList.add('hidden'); document.body.classList.remove('locked'); hero.setOpen(false);
-        if (stage === 'test') hero.pause();
-      }, 1100);
+      EL.vault($('#vLock'), 'ok', true); sfx.granted();
+      $('#lkStatus').textContent = 'Unlocked';
+      setTimeout(() => { ov.classList.add('hidden'); ov.classList.remove('unlocking'); document.body.classList.remove('locked'); $('#lkStatus').textContent = 'Waiting'; }, 1200);
       EL.toast('<b>Unlocked</b><br><span class="muted">Your teacher unlocked your test. Carry on.</span>', 'green');
     }
     wasLocked = locked;
   }
+
+  // ---------------------------------------------------------------- private chat with the teacher
+  let chatList = [], chatPrimed = false, lastTeacherKey = null, unread = 0;
+  function onChat(c) {
+    chatList = Object.entries(c).map(([k, m]) => Object.assign({ k }, m)).sort((a, b) => a.at - b.at);
+    const lastT = chatList.filter(m => m.from === 't').pop();
+    if (lastT && chatPrimed && lastT.k !== lastTeacherKey) {
+      sfx.msg();
+      if ($('#chatSheet').classList.contains('hidden')) {
+        unread++;
+        $('#incomingTxt').textContent = lastT.text;
+        $('#incoming').classList.remove('hidden');
+      } else markRead();
+    }
+    if (lastT) lastTeacherKey = lastT.k;
+    chatPrimed = true;
+    paintFab(); paintChat();
+  }
+  function paintFab() {
+    const fab = $('#chatFab'); let d = fab.querySelector('.dot');
+    if (unread && !d) { d = document.createElement('span'); d.className = 'dot'; fab.appendChild(d); }
+    if (d) { if (unread) d.textContent = unread; else d.remove(); }
+  }
+  function paintChat() {
+    const host = $('#sChatList');
+    host.innerHTML = chatList.length ? chatList.map(m => `<div class="bubble ${m.from === 's' ? 'me' : 'them'}">${esc(m.text)}<time>${EL.clock(m.at).slice(0, 5)}</time></div>`).join('')
+      : '<div class="chat-empty">Stuck or confused? Ask your teacher here.<br>ถ้าสงสัย พิมพ์ถามครูได้ที่นี่</div>';
+    host.scrollTop = host.scrollHeight;
+  }
+  function markRead() {
+    unread = 0; paintFab();
+    const lastT = chatList.filter(m => m.from === 't').pop();
+    if (lastT && !lastT.seen) B.update(P() + '/chat/' + lastT.k, { seen: true });
+  }
+  function openChat() { $('#incoming').classList.add('hidden'); $('#chatSheet').classList.remove('hidden'); markRead(); paintChat(); setTimeout(() => $('#sChatInput').focus(), 50); }
+  $('#chatFab').addEventListener('click', openChat);
+  $('#incReply').addEventListener('click', openChat);
+  $('#incOk').addEventListener('click', () => { $('#incoming').classList.add('hidden'); markRead(); });
+  $('#chatClose').addEventListener('click', () => $('#chatSheet').classList.add('hidden'));
+  $('#sChatForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const t = $('#sChatInput').value.trim(); if (!t || !code) return;
+    B.push(P() + '/chat', { from: 's', text: t.slice(0, 300), at: B.now() });
+    $('#sChatInput').value = ''; sfx.select();
+  });
 
   // ---------------------------------------------------------------- submit
   $('#submitBtn').addEventListener('click', () => {
@@ -291,8 +325,8 @@
   }
   function finish(auto) {
     $('#lock').classList.add('hidden'); document.body.classList.remove('locked'); wasLocked = false;
-    $('#confirm').classList.add('hidden');
-    show('done'); hero.resume(); heroTo('done'); hero.setState('ok'); hero.setOpen(true);
+    $('#confirm').classList.add('hidden'); $('#chatSheet').classList.add('hidden'); $('#incoming').classList.add('hidden');
+    show('done');
     $('#doneTitle').textContent = auto ? 'Time is up. Test submitted.' : 'Test submitted';
     sfx.ok();
     showResult(lastResult);
@@ -313,7 +347,7 @@
     $('#lock').classList.add('hidden'); document.body.classList.remove('locked');
     $('#msgTitle').textContent = 'Removed from the test';
     $('#msgBody').textContent = 'Your teacher removed you from this test. · ครูได้นำคุณออกจากการสอบนี้';
-    show('msg'); hero.resume(); heroTo('done'); hero.setState('lock');
+    show('msg');
   }
 
   boot();
