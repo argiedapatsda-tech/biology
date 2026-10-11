@@ -882,3 +882,25 @@ body.laser #psImg, body.laser #pfImg { cursor: none; }
 .pf-alert.pulse { animation: pfPulse 1s ease 3; }
 @keyframes pfPulse { 50% { box-shadow: 0 0 0 10px rgba(255, 77, 94, .25); } }
 @media (max-width: 1100px) { .pr-layout { grid-template-columns: 1fr; } body.presenting .pres-box { grid-template-columns: 1fr; } .ps-next { display: none; } }
+
+/* ---------------- screen sharing (PowerPoint with animations) */
+.pr-share { margin-bottom: 22px; border-color: rgba(70, 230, 140, .28); }
+.pr-share-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pr-share-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; align-items: start; }
+.pr-steps { margin: 0; padding-left: 22px; display: grid; gap: 9px; line-height: 1.55; color: var(--text-2); }
+.pr-steps b { color: var(--text); }
+.pr-share-go { display: grid; gap: 12px; }
+.pr-or { margin: 0 0 12px; font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--text-2); }
+.pr-or .muted { text-transform: none; letter-spacing: 0; font-family: inherit; }
+#psVid { display: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.ss-ctrl { display: none; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 10px; }
+.ss-paused { position: absolute; inset: auto 0 0 0; margin: auto; top: 0; display: grid; place-items: center; color: #ffb3ba; font-weight: 600; background: rgba(0, 0, 0, .72); }
+body.screenmode #psImg, body.screenmode .ps-ctrl, body.screenmode .ps-next, body.screenmode .ps-strip { display: none !important; }
+body.screenmode #psVid { display: block; }
+body.screenmode .ss-ctrl { display: flex; }
+body.screenmode.presenting .pres-box { grid-template-columns: minmax(0, 1fr); }
+body.screenmode .ps-stage { height: min(40vh, 460px); }
+#pVid { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; background: #000; border-radius: 6px; }
+.pvmsg { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; font-size: 17px; line-height: 1.6; color: var(--text); background: rgba(2, 6, 10, .78); }
+.pvmsg .th { display: block; color: var(--text-2); font-size: 15px; }
+@media (max-width: 1100px) { .pr-share-body { grid-template-columns: 1fr; } }

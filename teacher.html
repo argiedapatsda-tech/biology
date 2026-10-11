@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2302060a' stroke='%2346f08f' stroke-width='2.5'/%3E%3Cellipse cx='16' cy='16' rx='5' ry='4' fill='%236a97ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/app.css?v=20261011a">
+<link rel="stylesheet" href="assets/app.css?v=20261011f">
 </head>
 <body>
 
@@ -82,13 +82,18 @@
         <!-- presenting: the slide everyone sees, controls, next slide and all slides -->
         <div class="pres-box" id="presBox">
           <div class="ps-main panel">
-            <div class="ps-stage"><img id="psImg" alt="Current slide"><div class="laser-dot hidden" id="psPtr"></div></div>
+            <div class="ps-stage"><img id="psImg" alt="Current slide"><video id="psVid" muted autoplay playsinline></video><div class="ss-paused hidden" id="ssPaused">Not sharing right now</div><div class="laser-dot hidden" id="psPtr"></div></div>
             <div class="ps-ctrl">
               <button class="btn sm" id="psPrev" type="button">← Back</button>
               <b class="ps-num" id="psNum">– / –</b>
               <button class="btn sm primary" id="psNextBtn" type="button">Next →</button>
               <button class="btn sm laser-btn" type="button" title="Point at the slide: students see a red dot (key L)"><i data-icon="laser"></i>Laser pointer</button>
               <span class="small muted ps-keys">← → or a clicker change slides · F full screen · L laser</span>
+            </div>
+            <div class="ss-ctrl" id="ssCtrl">
+              <button class="btn sm primary" id="ssShare" type="button"><i data-icon="present"></i>Share again</button>
+              <button class="btn sm" id="ssStop" type="button">Stop sharing</button>
+              <span class="small muted" id="ssInfo">Present in PowerPoint as normal. Every click and animation shows on the iPads.</span>
             </div>
           </div>
           <div class="ps-next panel" id="psNextBox"><span class="label">Next slide</span><img id="psNext" alt=""></div>
@@ -194,6 +199,23 @@
     <!-- ---------- PRESENT ---------- -->
     <section class="view hidden" id="v-present">
       <h2 class="view-title">Present slides</h2>
+      <div class="panel pr-card pr-share">
+        <div class="pr-share-head"><span class="label">A · PowerPoint with animations</span><span class="pill live">Recommended</span></div>
+        <div class="pr-share-body">
+          <ol class="pr-steps">
+            <li>Open your PowerPoint and start the slide show (<b>F5</b>).</li>
+            <li>Come back to this page (<b>Alt + Tab</b>), type the title and press <b>Share my PowerPoint</b>.</li>
+            <li>Choose the <b>Window</b> tab → <b>PowerPoint Slide Show</b> → <b>Share</b>.</li>
+            <li>Students scan the QR code. Go back to PowerPoint (<b>Alt + Tab</b>) and present as normal. Every click, animation and video plays on their iPads.</li>
+          </ol>
+          <div class="pr-share-go">
+            <label class="field"><span>Lesson title</span><input class="input" id="ssTitle" maxlength="80" placeholder="e.g. Mitosis"></label>
+            <button class="btn primary" id="ssStart" type="button"><i data-icon="present"></i>Share my PowerPoint</button>
+            <p class="small muted" style="margin:0">Use Chrome or Edge on your computer. The iPads must be on the same Wi-Fi as the computer. Students who leave turn red, the same as in a test.</p>
+          </div>
+        </div>
+      </div>
+      <h3 class="pr-or">B · Or upload the slides as a PDF <span class="muted">(sharp pictures, but no animations)</span></h3>
       <div class="pr-layout">
         <div class="panel pr-card">
           <span class="label">1 · Choose your slides</span>
@@ -279,11 +301,11 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="assets/config.js?v=20261011a"></script>
-<script src="assets/backend.js?v=20261011a"></script>
-<script src="assets/common.js?v=20261011a"></script>
-<script src="assets/bio-bg.js?v=20261011a"></script>
-<script src="assets/importer.js?v=20261011a"></script>
-<script src="assets/teacher.js?v=20261011a"></script>
+<script src="assets/config.js?v=20261011f"></script>
+<script src="assets/backend.js?v=20261011f"></script>
+<script src="assets/common.js?v=20261011f"></script>
+<script src="assets/bio-bg.js?v=20261011f"></script>
+<script src="assets/importer.js?v=20261011f"></script>
+<script src="assets/teacher.js?v=20261011f"></script>
 </body>
 </html>

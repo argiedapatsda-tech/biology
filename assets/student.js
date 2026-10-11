@@ -392,12 +392,18 @@
       event('join');
     }
     B.onConnected(on => { if (on) { B.onDisconnectUpdate(P(), { online: false }); B.update(P(), { online: true }); } });
-    B.on(`sessions/${code}/control/${uid}`, c => { control = c || {}; if (control.kicked) return removed(); evalLock(); });
+    B.on(`sessions/${code}/control/${uid}`, c => { control = c || {}; if (control.kicked) return removed(); evalLock(); if (isScreen()) onOffer(control.rtc); });
     B.on(P() + '/chat', c => onChat(c || {}));
     $('#pTitle').textContent = meta.title || 'Lesson';
     $('#pWho').textContent = name;
+    if (isScreen()) {
+      $('#pImg').classList.add('hidden'); $('#pVid').classList.remove('hidden'); $('#pLoad').classList.add('hidden');
+      $('#pNum').textContent = 'LIVE';
+    }
     show('present');
     BioBG.setLevel(.25);
+    keepAwake();
+    if (isScreen()) askScreen();
     B.on(`sessions/${code}/meta`, m => onPresMeta(m));
     evalLock();
   }
@@ -410,6 +416,7 @@
     if (!m) return;
     meta = m;
     if (m.status === 'ended') return lessonOver();
+    if (isScreen()) return vidMsg();
     const i = Number(m.slide) || 0;
     $('#pNum').textContent = (i + 1) + ' / ' + (m.n || 0);
     paintPtr(m.ptr);
@@ -436,6 +443,9 @@
   $('#pImg').addEventListener('load', () => paintPtr(meta && meta.ptr));
   window.addEventListener('resize', () => { if (stage === 'present') paintPtr(meta && meta.ptr); });
   function lessonOver() {
+    clearTimeout(rtcTimer);
+    if (rtcPc) { try { rtcPc.close(); } catch (e) {} rtcPc = null; }
+    $('#pVid').srcObject = null;
     $('#lock').classList.add('hidden'); document.body.classList.remove('locked'); wasLocked = false;
     $('#msgTag').textContent = 'Lesson ended'; $('#msgTag').className = 'label';
     $('#msgTitle').textContent = 'The lesson has ended';
@@ -443,6 +453,93 @@
     show('msg');
     BioBG.setLevel(1);
   }
+
+  // ---------------------------------------------------------------- presentation: the teacher's shared screen
+  // (PowerPoint with its animations, streamed straight from the teacher's computer)
+  const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+  const isScreen = () => isPres() && meta.mode === 'screen';
+  let rtcPc = null, rtcWant = 0, rtcOfferId = null, rtcTimer = null, rtcTries = 0;
+  function gathered(pc, ms) {
+    return new Promise(res => {
+      if (pc.iceGatheringState === 'complete') return res();
+      const t = setTimeout(res, ms);
+      pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } });
+    });
+  }
+  // ask the teacher's computer for a (new) connection
+  function askScreen() {
+    if (stage !== 'present' || !isScreen() || meta.status === 'ended') return;
+    if (!window.RTCPeerConnection) { vidMsg('old'); return; }
+    rtcWant = B.now(); rtcOfferId = null; rtcTries++;
+    B.update(P(), { rtcWant }).catch(e => console.error(e));
+    clearTimeout(rtcTimer);
+    rtcTimer = setTimeout(() => { if (!rtcPc || rtcPc.connectionState !== 'connected') askScreen(); }, 20000);
+    vidMsg();
+  }
+  async function onOffer(o) {
+    if (!o || !o.offer || o.want !== rtcWant || o.id === rtcOfferId || stage !== 'present') return;
+    rtcOfferId = o.id;
+    if (rtcPc) { try { rtcPc.close(); } catch (e) {} }
+    const pc = rtcPc = new RTCPeerConnection({ iceServers: ICE });
+    pc.addEventListener('track', e => {
+      const v = $('#pVid');
+      v.srcObject = (e.streams && e.streams[0]) || new MediaStream([e.track]);
+      v.play().catch(() => {});
+    });
+    pc.addEventListener('connectionstatechange', () => {
+      if (pc !== rtcPc) return;
+      const st = pc.connectionState;
+      if (st === 'connected') { rtcTries = 0; clearTimeout(rtcTimer); const v = $('#pVid'); if (v.paused) v.play().catch(() => {}); }
+      else if (st === 'failed') { clearTimeout(rtcTimer); rtcTimer = setTimeout(askScreen, 2000); }
+      else if (st === 'disconnected') { clearTimeout(rtcTimer); rtcTimer = setTimeout(() => { if (pc === rtcPc && pc.connectionState !== 'connected') askScreen(); }, 8000); }
+      vidMsg();
+    });
+    try {
+      await pc.setRemoteDescription({ type: 'offer', sdp: o.offer });
+      pickCodec(pc);
+      await pc.setLocalDescription(await pc.createAnswer());
+      await gathered(pc, 2500);
+      if (pc !== rtcPc) return;
+      await B.update(P(), { rtcAns: { want: rtcWant, id: o.id, sdp: pc.localDescription.sdp } });
+    } catch (e) { console.error(e); }
+  }
+  // iPads (every iPad browser is Safari inside) decode H.264 in hardware, and it costs the teacher's computer
+  // least; Chrome on Android/laptops stalls a few seconds on H.264 at the start, so they take VP8 instead
+  const appleWebKit = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    || (/Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|Android|Firefox/.test(navigator.userAgent));
+  function pickCodec(pc) {
+    try {
+      const tx = pc.getTransceivers()[0], caps = window.RTCRtpReceiver && RTCRtpReceiver.getCapabilities && RTCRtpReceiver.getCapabilities('video');
+      if (!tx || !caps || !tx.setCodecPreferences) return;
+      const want = (window.__codec || (appleWebKit() ? 'h264' : 'vp8')).toLowerCase();
+      const f = c => c.sdpFmtpLine || '';
+      const rank = c => c.mimeType.toLowerCase() !== 'video/' + want ? 3 : /packetization-mode=0/.test(f(c)) ? 2 : /profile-level-id=42e0/i.test(f(c)) || want !== 'h264' ? 0 : 1;
+      tx.setCodecPreferences(caps.codecs.slice().sort((a, b) => rank(a) - rank(b)));
+    } catch (e) { console.warn('[screen] codec', e); }
+  }
+  function vidMsg(why) {
+    const el = $('#pVidMsg'), st = rtcPc ? rtcPc.connectionState : 'new';
+    let h = '';
+    if (why === 'old') h = 'This browser is too old to show the screen. Please update the iPad.<span class="th">เบราว์เซอร์นี้เก่าเกินไป กรุณาอัปเดต iPad</span>';
+    else if (meta.sharing === false) h = 'Your teacher has paused the screen. Please wait.<span class="th">ครูหยุดแชร์หน้าจอชั่วคราว กรุณารอสักครู่</span>';
+    else if (st !== 'connected') h = rtcTries > 2
+      ? "Still can't reach your teacher's screen. Check that the iPad is on the school Wi-Fi, then tell your teacher.<span class=\"th\">ยังเชื่อมต่อหน้าจอครูไม่ได้ ตรวจสอบว่าเชื่อมต่อ Wi-Fi ของโรงเรียน แล้วแจ้งครู</span>"
+      : "Connecting to your teacher's screen…<span class=\"th\">กำลังเชื่อมต่อหน้าจอครู…</span>";
+    if (el.innerHTML !== h) el.innerHTML = h;
+    el.classList.toggle('hidden', !h);
+  }
+  window.__rtc = () => rtcPc;   // for testing
+  // keep the iPad screen from dimming while the student watches
+  let wakeLock = null;
+  function keepAwake() {
+    if (!navigator.wakeLock || wakeLock || stage !== 'present') return;
+    navigator.wakeLock.request('screen').then(l => { wakeLock = l; l.addEventListener('release', () => { wakeLock = null; }); }).catch(() => {});
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || stage !== 'present') return;
+    keepAwake();
+    const v = $('#pVid'); if (v.srcObject && v.paused) v.play().catch(() => {});
+  });
 
   boot();
 })();

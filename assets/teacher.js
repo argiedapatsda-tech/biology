@@ -5,9 +5,12 @@
   const S = {
     uid: null, code: null, meta: null, students: {}, control: {}, events: {}, key: {}, questions: [], paper: null, overrides: {},
     selected: null, tab: 'screen', zoom: 'read', tests: {}, history: {}, editing: null, dirty: false, sound: true,
-    kind: 'test', slides: [], deck: null
+    kind: 'test', mode: 'slides', slides: [], deck: null
   };
   const isPres = () => S.kind === 'present';
+  // a presentation either sends picture slides, or streams the teacher's screen (PowerPoint with animations)
+  const isScreen = () => isPres() && S.mode === 'screen';
+  const SS = { code: null, stream: null, peers: {} };   // screen sharing: the stream and one connection per student
   const stText = st => st === 'active' && isPres() ? 'Watching' : STATUS_TXT[st];
   let sessionSubs = [], renderQueued = false;
   const seenEvents = new Set(); let eventsPrimed = false;
@@ -112,12 +115,12 @@
     const avg = grades.length ? Math.round(grades.reduce((a, g) => a + g.pct, 0) / grades.length) : 0;
     const pres = isPres(), leftN = ids.filter(id => (S.students[id].leaves || 0) > 0).length;
     const summary = pres
-      ? { kind: 'present', title: S.meta.title || 'Lesson', createdAt: S.meta.createdAt || B.now(), endedAt: S.meta.endedAt || B.now(), n: S.slides.length, students: ids.length, left: leftN }
+      ? { kind: 'present', mode: S.mode, title: S.meta.title || 'Lesson', createdAt: S.meta.createdAt || B.now(), endedAt: S.meta.endedAt || B.now(), n: S.slides.length, students: ids.length, left: leftN }
       : { title: S.meta.title || 'Test', createdAt: S.meta.createdAt || B.now(), endedAt: S.meta.endedAt || B.now(), n: S.questions.length, students: ids.length, avg };
     try { await B.update(`teachers/${S.uid}/history/${code}`, summary); } catch (e) { console.error(e); }
     sessionSubs.forEach(u => u()); sessionSubs = [];
     try { localStorage.removeItem('examlock-active-' + S.uid); } catch (e) {}
-    closeStudent(); closeProjector(); closeFull();
+    closeStudent(); closeProjector(); closeFull(); stopShare();
     for (const k of Object.keys(alarmLog)) delete alarmLog[k];
     S.code = null; S.meta = null; S.students = {}; rowEls.clear(); $('#roster').innerHTML = '';
     $('#endTitle').textContent = summary.title;
@@ -126,7 +129,7 @@
       : (ids.length ? `${ids.length} student${ids.length === 1 ? '' : 's'} · class average ${avg}%. Every answer is marked and saved in Past results.` : 'Nobody joined this test.');
     $('#endLabel').textContent = pres ? 'Lesson finished' : 'Test finished';
     $('#endOpen').textContent = pres ? 'See attendance' : 'See mark sheet';
-    S.kind = 'test'; S.slides = []; document.body.classList.remove('presenting');
+    S.kind = 'test'; S.mode = 'slides'; S.slides = []; document.body.classList.remove('presenting', 'screenmode');
     $('#endOpen').dataset.c = code;
     showLiveEmpty(true);
     play('ok');
@@ -139,17 +142,25 @@
     Object.assign(S, { code, meta: null, students: {}, control: {}, events: {}, key: {}, questions: [], paper: null, overrides: {}, selected: null, slides: [] });
     rowEls.clear(); $('#roster').innerHTML = ''; feedKeys.clear(); $('#feed').innerHTML = '';
     closeStudent();
+    if (SS.code && SS.code !== code) stopShare();
     const meta = await B.get(`sessions/${code}/meta`);
     if (!meta) { try { localStorage.removeItem('examlock-active-' + S.uid); } catch (e) {} S.code = null; return showLiveEmpty(); }
     try { localStorage.setItem('examlock-active-' + S.uid, code); } catch (e) {}
     S.kind = meta.kind === 'present' ? 'present' : 'test';
+    S.mode = meta.mode === 'screen' ? 'screen' : 'slides';
     document.body.classList.toggle('presenting', isPres());
+    document.body.classList.toggle('screenmode', isScreen());
     $('#stats').innerHTML = ''; $('#mActions').dataset.sig = '';
     if (!isPres() && S.tab !== 'screen') { S.tab = 'screen'; $$('#fpTabs > button').forEach(x => x.classList.toggle('on', x.dataset.t === 'screen')); ['screen', 'answers', 'log'].forEach(t => $('#dt-' + t).classList.toggle('hidden', t !== 'screen')); $('#zoomSeg').classList.remove('hidden'); }
     $('#quick').innerHTML = (isPres()
       ? ['Please look at the slide.', 'Please stay on this page.', "I'm coming to you.", 'Put your iPad down for now.']
       : ['Read the question again carefully.', "I'm coming to you.", 'Please stay on the test page.', 'You have 5 minutes left.']).map(t => `<button>${esc(t)}</button>`).join('');
-    if (isPres()) {
+    if (isScreen()) {
+      S.questions = []; S.paper = null; S.key = {};
+      // reopened (e.g. after a reload): nothing is being shared until the teacher picks the window again
+      if (!SS.stream && meta.status !== 'ended') B.update(`sessions/${code}/meta`, { sharing: false });
+      showPreview();
+    } else if (isPres()) {
       // the slides travel in the "questions" list, which students may read one item at a time
       busy('Loading the slides…');
       try { S.slides = EL.asArray(await B.get(P('questions'))).map(x => x && x.img).filter(Boolean); } finally { busy(''); }
@@ -161,9 +172,9 @@
     }
     $('#liveEmpty').classList.add('hidden'); $('#liveMain').classList.remove('hidden');
     $('#mCode').textContent = code;
-    sessionSubs.push(B.on(P('meta'), m => { if (!m) return; S.meta = m; renderBar(); queue(); if (isPres()) renderSlide(); if (m.status === 'ended') setTimeout(finishSession, 1500); }));
-    sessionSubs.push(B.on(P('students'), s => { S.students = s || {}; queue(); }));
-    sessionSubs.push(B.on(P('control'), c => { S.control = c || {}; queue(); }));
+    sessionSubs.push(B.on(P('meta'), m => { if (!m) return; S.meta = m; renderBar(); queue(); if (isPres() && !isScreen()) renderSlide(); rtcSync(); if (m.status === 'ended') setTimeout(finishSession, 1500); }));
+    sessionSubs.push(B.on(P('students'), s => { S.students = s || {}; queue(); rtcSync(); }));
+    sessionSubs.push(B.on(P('control'), c => { S.control = c || {}; queue(); rtcSync(); }));
     sessionSubs.push(B.on(P('overrides'), o => { S.overrides = o || {}; queue(); }));
     sessionSubs.push(B.on(P('events'), ev => onEvents(ev || {})));
     go('live');
@@ -209,13 +220,13 @@
     const st = m.status;
     $('#mStatus').className = 'pill ' + (st === 'live' ? 'live' : st === 'ended' ? 'ended' : 'waiting');
     $('#mStatus').textContent = isPres() ? (st === 'ended' ? 'Lesson ended' : 'Presenting') : st === 'live' ? 'Test in progress' : st === 'ended' ? 'Test ended' : 'Waiting for students';
-    const sig = S.kind + '|' + st + '|' + !!m.release;
+    const sig = S.kind + '|' + S.mode + '|' + st + '|' + !!m.release + '|' + !!SS.stream;
     if ($('#mActions').dataset.sig === sig) return;
     $('#mActions').dataset.sig = sig;
     const btn = (act, ic, label, cls) => `<button class="btn sm ${cls || ''}" data-mact="${act}">${ic ? icon(ic) : ''}${label}</button>`;
     let h = '';
     if (isPres()) {
-      h += btn('full', 'play', 'Present full screen', 'green') + btn('end', 'stop', 'End lesson', 'danger') + btn('lockall', 'pause', 'Pause everyone', 'warn') + btn('unlockall', 'unlock', 'Unlock everyone');
+      h += (isScreen() ? (SS.stream ? btn('share', 'present', 'Share a different window') : btn('share', 'present', 'Share my screen', 'green')) : btn('full', 'play', 'Present full screen', 'green')) + btn('end', 'stop', 'End lesson', 'danger') + btn('lockall', 'pause', 'Pause everyone', 'warn') + btn('unlockall', 'unlock', 'Unlock everyone');
       h += '<span class="sep"></span>' + btn('projector', 'qr', 'Join screen') + btn('csv', 'download', 'Attendance');
       $('#mActions').innerHTML = h;
       return;
@@ -234,6 +245,7 @@
     const a = b.dataset.mact, m = S.meta;
     if (a === 'start') { await B.update(P('meta'), { status: 'live', startedAt: B.now() }); play('granted'); }
     if (a === 'full') openFull();
+    if (a === 'share') reshare();
     if (a === 'end' && isPres() && await confirmBox('End this lesson?', 'Every student screen closes and the attendance is saved.', 'End lesson', true)) {
       await B.update(P('meta'), { status: 'ended', endedAt: B.now(), ptr: null });
     }
@@ -280,10 +292,10 @@
       if (st === 'submitted') { c.submitted++; sum += gradeOf(id).pct; n++; }
     });
     if (!$('#stats').children.length) {
-      $('#stats').innerHTML = (isPres() ? ['Joined', 'Watching', 'Left / locked', 'Offline', 'Slide'] : ['Joined', 'Working', 'Left / locked', 'Submitted', 'Average score'])
+      $('#stats').innerHTML = (isPres() ? ['Joined', 'Watching', 'Left / locked', 'Offline', isScreen() ? 'See your screen' : 'Slide'] : ['Joined', 'Working', 'Left / locked', 'Submitted', 'Average score'])
         .map((l, i) => `<div class="stat ${['', 'green', 'red', 'amber', ''][i]}"><b>0</b><span>${l}</span></div>`).join('');
     }
-    const vals = isPres() ? [c.total, c.active, c.alert, c.offline, ((Number(S.meta && S.meta.slide) || 0) + 1) + '/' + S.slides.length]
+    const vals = isPres() ? [c.total, c.active, c.alert, c.offline, isScreen() ? Object.values(SS.peers).filter(p => p.state === 'connected').length + '/' + c.total : ((Number(S.meta && S.meta.slide) || 0) + 1) + '/' + S.slides.length]
       : [c.total, c.active, c.alert, c.submitted, n ? Math.round(sum / n) + '%' : '–'];
     $$('#stats .stat').forEach((el, i) => { const b = el.firstElementChild; if (b.textContent !== String(vals[i])) b.textContent = vals[i]; });
     $$('#stats .stat')[2].classList.toggle('hot', c.alert > 0);
@@ -299,7 +311,7 @@
   function rowHTML(id) {
     const s = S.students[id], st = statusOf(id), total = S.questions.length || 1;
     const sub = st === 'away' ? (isPres() ? 'Left the lesson now' : 'Left the test now') : st === 'locked' ? 'Locked · waiting for you'
-      : st === 'submitted' && s.awayAfter ? 'Finished · outside the page now' : stText(st);
+      : st === 'submitted' && s.awayAfter ? 'Finished · outside the page now' : stText(st) + (isScreen() && st === 'active' ? ' · ' + screenTxt(id) : '');
     const prog = isPres() ? '' : `<span class="s-prog">${s.answered || 0}/${S.questions.length}</span>
         <span class="s-bar"><i style="transform:scaleX(${(s.answered || 0) / total})"></i></span>`;
     return `<div class="s-av">${esc(initials(s.name))}</div>
@@ -654,12 +666,14 @@
   document.addEventListener('pointerdown', () => sfx.unlock(), { capture: true });
   function tick() {
     repeatAlarm();
+    ssStats();
     const m = S.meta; if (!m || !S.code) return;
     const n = Object.keys(S.students).length;
     let sub = `${S.questions.length} questions · code ${S.code}`;
     let timerTxt = '--:--', cls = '';
     if (isPres()) {
-      sub = `Slide ${(Number(m.slide) || 0) + 1} of ${S.slides.length} · code ${S.code} · ${n} watching`;
+      sub = isScreen() ? `${SS.stream ? 'Sharing your screen' : 'Not sharing'} · code ${S.code} · ${n} watching`
+        : `Slide ${(Number(m.slide) || 0) + 1} of ${S.slides.length} · code ${S.code} · ${n} watching`;
       timerTxt = m.status === 'ended' ? 'Ended' : EL.fmtTime(B.now() - (m.startedAt || B.now()));
     } else if (m.status === 'live' && m.startedAt) {
       const tl = Number(m.timeLimit) || 0;
@@ -926,10 +940,10 @@
     const ids = Object.keys(S.history).sort((a, b) => S.history[b].createdAt - S.history[a].createdAt);
     $('#archiveList').innerHTML = ids.map(c => {
       const h = S.history[c], done = !!h.endedAt, pres = h.kind === 'present';
-      const facts = pres ? `${h.n} slides${done ? ` · ${h.students || 0} students · ${h.left || 0} left the page` : ''}`
+      const facts = pres ? `${h.mode === 'screen' ? 'Screen share' : h.n + ' slides'}${done ? ` · ${h.students || 0} students · ${h.left || 0} left the page` : ''}`
         : `${h.n} questions${done ? ` · ${h.students || 0} students · average ${h.avg || 0}%` : ''}`;
       return `<div class="arow" data-arc="${done ? 'sheet' : 'open'}" data-c="${c}"><span class="code">${c}</span>
-        <div class="grow"><b>${pres ? '<span class="kind-tag">Slides</span>' : ''}${esc(h.title)}</b><div class="small muted">${new Date(h.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${facts}${done ? '' : ' · <span style="color:var(--gfp)">still open</span>'}</div></div>
+        <div class="grow"><b>${pres ? `<span class="kind-tag">${h.mode === 'screen' ? 'PowerPoint' : 'Slides'}</span>` : ''}${esc(h.title)}</b><div class="small muted">${new Date(h.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${facts}${done ? '' : ' · <span style="color:var(--gfp)">still open</span>'}</div></div>
         ${pres && done ? `<button class="btn sm" data-arc="again" data-c="${c}">${icon('play')}Present again</button>` : ''}
         <button class="btn sm ${done ? 'primary' : ''}" data-arc="${done ? 'sheet' : 'open'}" data-c="${c}">${done ? (pres ? 'Attendance' : 'Mark sheet') : 'Open live'}</button>
         <button class="btn sm iconbtn ghost" data-arc="del" data-c="${c}" title="Delete">${icon('trash')}</button></div>`;
@@ -1047,6 +1061,7 @@
     startDeck(title, PS.slides);
   });
   async function presentAgain(old) {
+    if ((S.history[old] || {}).mode === 'screen') return startScreen(S.history[old].title || 'Lesson');
     busy('Loading the slides…');
     let slides = [], title = (S.history[old] || {}).title || 'Lesson';
     try { slides = EL.asArray(await B.get(`sessions/${old}/questions`)).map(x => x && x.img).filter(Boolean); } finally { busy(''); }
@@ -1109,7 +1124,7 @@
   $('#pfNextBtn').addEventListener('click', () => goSlide(curIdx() + 1));
   // arrow keys, space and presentation clickers (they send PageUp / PageDown)
   document.addEventListener('keydown', e => {
-    if (!isPres() || !S.code || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!isPres() || isScreen() || !S.code || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
     if ($('#v-live').classList.contains('hidden') && !fullOpen()) return;
     if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter', 'n'].includes(e.key)) { e.preventDefault(); goSlide(curIdx() + 1); }
@@ -1195,7 +1210,7 @@
       <div class="ms-head">
         <button class="btn sm ghost" id="msBack">← Past results</button>
         <div class="ms-title"><span class="label">Attendance · ${esc(code)}</span><h2>${esc(m.title || 'Lesson')}</h2>
-          <div class="small muted">${m.createdAt ? new Date(m.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''} · ${m.n || 0} slides · ${ids.length} students · ${ids.filter(id => studs[id].leaves).length} left the page</div></div>
+          <div class="small muted">${m.createdAt ? new Date(m.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''} · ${m.mode === 'screen' ? 'PowerPoint screen share' : (m.n || 0) + ' slides'} · ${ids.length} students · ${ids.filter(id => studs[id].leaves).length} left the page</div></div>
         <button class="btn sm" id="msCsv">${icon('download')}Download</button>
       </div>
       <div class="ms-wrap"><table class="ms">
@@ -1219,6 +1234,204 @@
     a.download = `${((m || {}).title || 'lesson').replace(/[^\w\- ]+/g, '').trim() || 'lesson'}_${code}_attendance.csv`;
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
+
+  // ================================================================ screen sharing
+  // PowerPoint keeps its animations: the teacher shares the slide show window and it streams straight
+  // to every iPad (WebRTC, one connection per student, over the classroom Wi-Fi). The database only
+  // carries the handshake: the student asks (students/<sid>/rtcWant), the teacher offers
+  // (control/<sid>/rtc), the student answers (students/<sid>/rtcAns). No rule change is needed.
+  const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+  const canShare = () => !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && window.RTCPeerConnection);
+  function gathered(pc, ms) {
+    return new Promise(res => {
+      if (pc.iceGatheringState === 'complete') return res();
+      const t = setTimeout(res, ms);
+      pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } });
+    });
+  }
+  async function grabScreen() {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      // 1280x720 is the most H.264 level 3.1 allows; bigger pictures are refused by the decoder
+      video: { frameRate: { ideal: 30, max: 30 }, width: { max: 1280 }, height: { max: 720 } },
+      audio: false, selfBrowserSurface: 'exclude', surfaceSwitching: 'include'
+    });
+    const tr = stream.getVideoTracks()[0];
+    try { tr.contentHint = 'detail'; } catch (e) {}
+    tr.addEventListener('ended', () => { if (SS.stream === stream) shareEnded(); });
+    return stream;
+  }
+  function shareError(ex) {
+    if (ex && ex.name === 'NotAllowedError') return EL.toast('Sharing was cancelled.', 'amber');
+    console.error(ex); EL.toast('Could not share the screen: ' + esc((ex && ex.message) || ex), 'red', 8000);
+  }
+  async function startScreen(title) {
+    if (!canShare()) return EL.toast("This browser can't share the screen. Open this page in Chrome or Edge on a computer.", 'red', 9000);
+    if (S.code && S.meta && S.meta.status !== 'ended' && !(await confirmBox('Something is still running', 'Starting this lesson switches your screen away from it. It keeps running and you can reopen it from Past results.', 'Start anyway'))) return;
+    let stream;
+    try { stream = await grabScreen(); } catch (ex) { return shareError(ex); }
+    let code = null;
+    for (let i = 0; i < 6; i++) { const c = EL.makeCode(); if (!(await B.get(`sessions/${c}/meta`))) { code = c; break; } }
+    if (!code) { stream.getTracks().forEach(t => t.stop()); return EL.toast('Could not make a code. Try again.', 'red'); }
+    const now = B.now();
+    try {
+      busy('Getting the lesson ready…');
+      await B.set(`sessions/${code}/meta`, { kind: 'present', mode: 'screen', title, status: 'live', createdAt: now, startedAt: now, n: 0, slide: 0, sharing: true, owner: S.uid });
+      await B.set(`teachers/${S.uid}/history/${code}`, { kind: 'present', mode: 'screen', title, createdAt: now, n: 0 });
+    } catch (ex) { console.error(ex); busy(''); stream.getTracks().forEach(t => t.stop()); return EL.toast('Could not start: ' + esc(ex.message || ex), 'red', 8000); }
+    busy('');
+    stopShare();
+    SS.code = code; SS.stream = stream;
+    $('#ssTitle').value = '';
+    play('granted');
+    await openSession(code);
+    showPreview();
+    openProjector();
+  }
+  $('#ssStart').addEventListener('click', () => {
+    const t = $('#ssTitle').value.trim();
+    if (!t) { $('#ssTitle').focus(); return EL.toast('Give the lesson a title first.', 'red'); }
+    startScreen(t);
+  });
+  // pick the window again (after the slide show was closed, or to show a different window)
+  async function reshare() {
+    if (!isScreen() || !S.code) return;
+    if (!canShare()) return EL.toast("This browser can't share the screen. Use Chrome or Edge on a computer.", 'red', 9000);
+    let stream;
+    try { stream = await grabScreen(); } catch (ex) { return shareError(ex); }
+    const old = SS.stream;
+    SS.stream = stream; SS.code = S.code;
+    if (old) old.getTracks().forEach(t => t.stop());
+    const tr = stream.getVideoTracks()[0];
+    for (const p of Object.values(SS.peers)) if (p.sender) p.sender.replaceTrack(tr).catch(console.error);
+    retune();   // the new window may be a different size
+    B.update(P('meta'), { sharing: true });
+    showPreview(); tick();
+  }
+  // the teacher pressed "Stop sharing", or closed the slide show window
+  function shareEnded() {
+    SS.stream = null;
+    for (const p of Object.values(SS.peers)) if (p.sender) p.sender.replaceTrack(null).catch(() => {});
+    if (S.code && isScreen() && S.meta && S.meta.status !== 'ended') {
+      B.update(P('meta'), { sharing: false });
+      EL.toast('<b>Screen sharing stopped.</b><br><span class="muted">Students see "paused". Press Share my screen to carry on.</span>', 'amber', 9000);
+    }
+    showPreview(); tick();
+  }
+  $('#ssShare').addEventListener('click', reshare);
+  $('#ssStop').addEventListener('click', () => { if (!SS.stream) return; SS.stream.getTracks().forEach(t => t.stop()); shareEnded(); });
+  function showPreview() {
+    const v = $('#psVid');
+    if (v.srcObject !== SS.stream) v.srcObject = SS.stream;
+    if (SS.stream) v.play().catch(() => {});
+    $('#ssPaused').classList.toggle('hidden', !!SS.stream);
+    $('#ssShare').innerHTML = icon('present') + (SS.stream ? 'Share a different window' : 'Share my screen');
+    $('#ssShare').className = 'btn sm ' + (SS.stream ? '' : 'primary');
+    $('#ssStop').classList.toggle('hidden', !SS.stream);
+    renderBar();
+  }
+  function stopShare() {
+    for (const id of Object.keys(SS.peers)) closePeer(id);
+    if (SS.stream) SS.stream.getTracks().forEach(t => t.stop());
+    SS.stream = null; SS.code = null;
+    $('#psVid').srcObject = null;
+  }
+  function closePeer(id) {
+    const p = SS.peers[id]; if (!p) return;
+    delete SS.peers[id];
+    try { p.pc.close(); } catch (e) {}
+  }
+  // The computer encodes the picture once per iPad, so a big class gets a lighter stream: measured on a
+  // Core i5 laptop, this keeps ~20 frames/s up to 20 iPads and ~14 frames/s for 30. The class also
+  // shares one Wi-Fi, so a fixed bandwidth budget is split between the iPads that are watching.
+  function encFor(n) {
+    n = Math.max(1, n);
+    // never more than 1280x720 (H.264 level 3.1), even if the browser hands over a bigger picture
+    const tr = SS.stream && SS.stream.getVideoTracks()[0], st = (tr && tr.getSettings && tr.getSettings()) || {};
+    const base = Math.max(1, (st.width || 0) / 1280, (st.height || 0) / 720);
+    return { maxBitrate: Math.round(Math.max(500e3, Math.min(2.5e6, 30e6 / n))), maxFramerate: n > 20 ? 15 : n > 10 ? 20 : 30, scaleResolutionDownBy: Math.round(base * (n > 20 ? 1.25 : 1) * 100) / 100 };
+  }
+  const watchingN = () => Object.values(SS.peers).filter(p => p.state === 'connected').length;
+  function tuneSender(p, enc) {
+    const prm = p.sender.getParameters();
+    if (!prm.encodings || !prm.encodings.length) return;
+    Object.assign(prm.encodings[0], enc);
+    prm.degradationPreference = 'balanced';   // keep animations moving, not only sharp
+    p.enc = JSON.stringify(enc);
+    p.sender.setParameters(prm).catch(e => console.warn('[screen] setParameters', e));
+  }
+  function retune() { const enc = encFor(watchingN()), sig = JSON.stringify(enc); for (const p of Object.values(SS.peers)) if (p.state === 'connected' && p.enc !== sig) tuneSender(p, enc); }
+  // H.264: cheapest for the computer to send (measured 3x more iPads than VP8) and the iPad decodes it in hardware
+  function preferH264(tx) {
+    try {
+      const caps = RTCRtpSender.getCapabilities && RTCRtpSender.getCapabilities('video');
+      if (!caps || !tx.setCodecPreferences || window.__ssCodec === 'default') return;
+      // Constrained Baseline, packetization-mode 1: the profile every iPad decodes in hardware
+      const rank = c => !/h264/i.test(c.mimeType) ? 9 : /packetization-mode=1/.test(c.sdpFmtpLine || '') ? (/profile-level-id=42e0/i.test(c.sdpFmtpLine) ? 0 : /profile-level-id=4200/i.test(c.sdpFmtpLine) ? 1 : 2) : 3;
+      const sorted = caps.codecs.slice().sort((a, b) => rank(a) - rank(b));
+      if (rank(sorted[0]) < 9) tx.setCodecPreferences(sorted);
+    } catch (e) { console.warn('[screen] codec', e); }
+  }
+  // what the teacher sees under the preview: how many iPads, how smooth
+  let ssStatsT = 0;
+  async function ssStats() {
+    if (!isScreen() || !SS.stream || Date.now() - ssStatsT < 2500) return;
+    ssStatsT = Date.now();
+    const fps = [];
+    for (const p of Object.values(SS.peers)) {
+      if (p.state !== 'connected') continue;
+      try { (await p.sender.getStats()).forEach(x => { if (x.type === 'outbound-rtp') fps.push(x.framesPerSecond || 0); }); } catch (e) {}
+    }
+    const n = fps.length, med = n ? fps.sort((a, b) => a - b)[n >> 1] : 0;
+    $('#ssInfo').textContent = n ? `Sending to ${n} iPad${n === 1 ? '' : 's'} · about ${Math.round(med)} pictures a second while something moves · present in PowerPoint as normal`
+      : 'Present in PowerPoint as normal. Every click and animation shows on the iPads.';
+  }
+  async function connectPeer(sid, want) {
+    closePeer(sid);
+    const pc = new RTCPeerConnection({ iceServers: ICE });
+    const p = SS.peers[sid] = { pc, want, id: Math.random().toString(36).slice(2, 10), state: 'connecting', offered: false, answered: false, code: S.code };
+    const tr = SS.stream ? SS.stream.getVideoTracks()[0] : null;
+    const enc = encFor(watchingN() + 1);
+    const tx = pc.addTransceiver(tr || 'video', { direction: 'sendonly', streams: SS.stream ? [SS.stream] : [], sendEncodings: [enc] });
+    preferH264(tx);
+    p.sender = tx.sender;
+    tuneSender(p, enc);   // set before connecting: changing it mid-stream makes the iPad wait for a fresh keyframe
+    pc.addEventListener('connectionstatechange', () => {
+      if (SS.peers[sid] !== p) return;
+      p.state = pc.connectionState;
+      if (p.state === 'connected' || p.state === 'failed' || p.state === 'closed') retune();
+      queue();
+    });
+    try {
+      await pc.setLocalDescription(await pc.createOffer());
+      await gathered(pc, 2500);
+      if (SS.peers[sid] !== p || S.code !== p.code) return;
+      await B.set(P(`control/${sid}/rtc`), { want, id: p.id, offer: pc.localDescription.sdp });
+      p.offered = true;
+      rtcSync();
+    } catch (e) { console.error(e); if (SS.peers[sid] === p) { p.state = 'failed'; queue(); } }
+  }
+  // every student who asks gets a connection; a new ask (reload, lost Wi-Fi) gets a fresh one
+  function rtcSync() {
+    if (!isScreen() || !S.code || !window.RTCPeerConnection) return;
+    if (S.meta && S.meta.status === 'ended') return;
+    for (const id of Object.keys(S.students)) {
+      const s = S.students[id], p = SS.peers[id];
+      if ((S.control[id] || {}).kicked) { closePeer(id); continue; }
+      if (!s.rtcWant) continue;
+      if (!p || p.want !== s.rtcWant) { connectPeer(id, s.rtcWant); continue; }
+      const a = s.rtcAns;
+      if (p.offered && !p.answered && a && a.id === p.id) {
+        p.answered = true;
+        p.pc.setRemoteDescription({ type: 'answer', sdp: a.sdp }).catch(e => { console.error(e); p.state = 'failed'; queue(); });
+      }
+    }
+    for (const id of Object.keys(SS.peers)) if (!S.students[id]) closePeer(id);
+  }
+  function screenTxt(id) {
+    const st = (SS.peers[id] || {}).state;
+    return st === 'connected' ? 'sees your screen' : st === 'failed' || st === 'disconnected' ? "can't see your screen" : 'connecting…';
+  }
+  window.__ss = SS;   // for testing
 
   // ================================================================ setup guide
   const RULES = `{
@@ -1269,6 +1482,6 @@
     (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => EL.toast('Copied', 'green', 1500)).catch(() => EL.toast('Select the text and copy it yourself', 'amber'));
   });
 
-  window.addEventListener('beforeunload', e => { if (S.dirty) { e.preventDefault(); e.returnValue = ''; } });
+  window.addEventListener('beforeunload', e => { if (S.dirty || SS.stream) { e.preventDefault(); e.returnValue = ''; } });
   initAuth();
 })();
