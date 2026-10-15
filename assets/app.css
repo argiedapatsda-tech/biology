@@ -1277,3 +1277,22 @@ body.bg-calm .cosmos { opacity: .55; }
 .s-card, .auth-card, .modal-box { background: rgba(6, 14, 24, .7) !important; box-shadow: none !important; }
 .btn::before, .tile::before, .box-title::before, .door::before { background: rgba(6, 16, 28, .72); }
 .home .live-strip { background: rgba(4, 10, 18, .5); }
+
+/* test folders */
+.test-tree { display: grid; gap: 10px; }
+.fgroup { border: 1px solid var(--edge); border-radius: 10px; background: rgba(4, 10, 18, .45); transition: border-color .15s, box-shadow .15s; }
+.fgroup.drop { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal), 0 0 18px rgba(63, 230, 207, .3); }
+.fhead { display: flex; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; font-family: var(--ui); letter-spacing: .06em; color: #cdeee9; user-select: none; }
+.fhead .i { width: 16px; height: 16px; color: var(--teal-2); }
+.fhead b { flex: 1; min-width: 0; font-size: 13.5px; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fcaret { width: 12px; color: #8fb3ad; font-size: 12px; }
+.fcount { min-width: 22px; padding: 0 6px; border-radius: 10px; background: rgba(63, 230, 207, .14); color: var(--teal-2); font-size: 12px; text-align: center; }
+.fbtns { display: none; gap: 4px; }
+.fhead:hover .fbtns, .fgroup.open .fbtns { display: inline-flex; }
+.fbtns .ibtn { width: 26px; height: 26px; font-size: 12px; }
+.fbody { display: none; gap: 8px; padding: 0 8px 8px; }
+.fgroup.open .fbody { display: grid; }
+.fempty { margin: 0; padding: 8px; font-size: 12.5px; color: #8fb3ad; border: 1px dashed var(--edge); border-radius: 8px; }
+.tcard.dragging { opacity: .45; }
+.side { background: rgba(4, 10, 18, .96) !important; }
+.ed-foot { background: rgba(4, 10, 18, .96) !important; }

@@ -73,6 +73,7 @@
     mp.title = B.mode === 'demo' ? 'Demo: this browser only' : 'Online: iPads can join';
     mp.querySelector('span').textContent = B.mode === 'demo' ? 'Demo · this browser only' : 'Online';
     B.on(`teachers/${S.uid}/tests`, t => { S.tests = t || {}; renderTestList(); });
+    B.on(`teachers/${S.uid}/folders`, f => { S.folders = f || {}; renderTestList(); if (S.editing) fillFolderSelect(); });
     B.on(`teachers/${S.uid}/history`, h => { S.history = h || {}; renderArchive(); });
     renderSetup();
     let active = null; try { active = localStorage.getItem('examlock-active-' + S.uid); } catch (e) {}
@@ -764,15 +765,79 @@
   }
 
   // ================================================================ tests editor
-  function renderTestList() {
-    const ids = Object.keys(S.tests).sort((a, b) => (S.tests[b].updatedAt || 0) - (S.tests[a].updatedAt || 0));
-    $('#testList').innerHTML = ids.map(id => {
-      const t = S.tests[id], n = EL.asArray(t.questions).length;
-      return `<div class="tcard ${S.editing && S.editing.id === id ? 'on' : ''}" data-tid="${id}"><b>${esc(t.title || 'Untitled')}</b>
-        <span>${t.pick && t.pick < n ? t.pick + ' of ' + n : n} question${n === 1 ? '' : 's'}${t.nsets > 1 ? ' · ' + t.nsets + ' sets' : ''} · ${t.timeLimit ? t.timeLimit + ' min' : 'no time limit'}${t.paper ? ' · has file' : ''}</span></div>`;
-    }).join('') || '<p class="muted small">No tests yet.</p>';
+  // ---------------- folders: teachers/<uid>/folders/<id> = { name, createdAt }; a test keeps its folder id in t.folder
+  const folderOpen = id => { try { return localStorage.getItem('el-fold-' + id) !== '0'; } catch (e) { return true; } };
+  const setFolderOpen = (id, on) => { try { localStorage.setItem('el-fold-' + id, on ? '1' : '0'); } catch (e) {} };
+  function testCard(id) {
+    const t = S.tests[id], n = EL.asArray(t.questions).length;
+    return `<div class="tcard ${S.editing && S.editing.id === id ? 'on' : ''}" data-tid="${id}" draggable="true"><b>${esc(t.title || 'Untitled')}</b>
+      <span>${t.pick && t.pick < n ? t.pick + ' of ' + n : n} question${n === 1 ? '' : 's'}${t.nsets > 1 ? ' · ' + t.nsets + ' sets' : ''} · ${t.timeLimit ? t.timeLimit + ' min' : 'no time limit'}${t.paper ? ' · has file' : ''}</span></div>`;
   }
+  function renderTestList() {
+    const folders = S.folders || {};
+    const ids = Object.keys(S.tests).sort((a, b) => (S.tests[b].updatedAt || 0) - (S.tests[a].updatedAt || 0));
+    const inF = fid => ids.filter(id => (folders[S.tests[id].folder] ? S.tests[id].folder : '') === fid);
+    const fids = Object.keys(folders).sort((a, b) => String(folders[a].name).localeCompare(String(folders[b].name)));
+    const group = (fid, name, list) => {
+      const open = folderOpen(fid || 'none');
+      return `<div class="fgroup ${open ? 'open' : ''}" data-fid="${fid}">
+        <div class="fhead" data-fold="${fid}"><span class="fcaret">${open ? '▾' : '▸'}</span>${icon('archive')}<b>${esc(name)}</b><span class="fcount">${list.length}</span>
+          ${fid ? `<span class="fbtns"><button type="button" class="ibtn" data-frename="${fid}" title="Rename folder">✎</button><button type="button" class="ibtn del" data-fdel="${fid}" title="Delete folder (tests are kept)">✕</button></span>` : ''}</div>
+        <div class="fbody">${list.map(testCard).join('') || '<p class="fempty">Empty. Drag a test here, or pick this folder at the top of a test.</p>'}</div></div>`;
+    };
+    if (!ids.length && !fids.length) { $('#testList').innerHTML = '<p class="muted small">No tests yet.</p>'; return; }
+    $('#testList').innerHTML = fids.map(fid => group(fid, folders[fid].name, inF(fid))).join('') + group('', fids.length ? 'No folder' : 'All tests', inF(''));
+  }
+  function fillFolderSelect() {
+    const f = S.folders || {}, cur = S.editing && f[S.editing.folder] ? S.editing.folder : '';
+    $('#edFolder').innerHTML = '<option value="">No folder</option>' + Object.keys(f).sort((a, b) => String(f[a].name).localeCompare(String(f[b].name)))
+      .map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${esc(f[id].name)}</option>`).join('');
+  }
+  function askFolderName(title, value) {
+    return new Promise(res => {
+      $('#fmTitle').textContent = title; $('#fmName').value = value || '';
+      $('#folderModal').classList.remove('hidden'); setTimeout(() => $('#fmName').focus(), 30);
+      const done = v => { $('#folderModal').classList.add('hidden'); $('#fmYes').onclick = $('#fmNo').onclick = $('#fmName').onkeydown = null; res(v); };
+      $('#fmYes').onclick = () => { const v = $('#fmName').value.trim(); if (!v) return $('#fmName').focus(); done(v.slice(0, 60)); };
+      $('#fmNo').onclick = () => done(null);
+      $('#fmName').onkeydown = e => { if (e.key === 'Enter') $('#fmYes').click(); if (e.key === 'Escape') done(null); };
+    });
+  }
+  async function moveTest(tid, fid) {
+    if (!S.tests[tid]) return;
+    if ((S.tests[tid].folder || '') === fid) return;
+    await B.update(`teachers/${S.uid}/tests/${tid}`, { folder: fid || null });
+    if (S.editing && S.editing.id === tid) { S.editing.folder = fid || ''; fillFolderSelect(); }
+    const f = (S.folders || {})[fid];
+    EL.toast(`Moved to <b>${esc(f ? f.name : 'No folder')}</b>`, 'green', 2000);
+  }
+  $('#newFolder').addEventListener('click', async () => {
+    const name = await askFolderName('New folder'); if (!name) return;
+    const id = 'f' + EL.rid(8);
+    await B.set(`teachers/${S.uid}/folders/${id}`, { name, createdAt: B.now() });
+    setFolderOpen(id, true);
+  });
+  // drag a test onto a folder to move it
+  let dragTid = null;
+  $('#testList').addEventListener('dragstart', e => { const c = e.target.closest('.tcard'); if (!c) return; dragTid = c.dataset.tid; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dragTid); } catch (x) {} c.classList.add('dragging'); });
+  $('#testList').addEventListener('dragend', () => { dragTid = null; $$('#testList .dragging, #testList .drop').forEach(x => x.classList.remove('dragging', 'drop')); });
+  $('#testList').addEventListener('dragover', e => { const g = e.target.closest('.fgroup'); if (!g || !dragTid) return; e.preventDefault(); $$('#testList .drop').forEach(x => x !== g && x.classList.remove('drop')); g.classList.add('drop'); });
+  $('#testList').addEventListener('drop', e => { const g = e.target.closest('.fgroup'); if (!g || !dragTid) return; e.preventDefault(); g.classList.remove('drop'); moveTest(dragTid, g.dataset.fid); });
   $('#testList').addEventListener('click', async e => {
+    const rn = e.target.closest('[data-frename]');
+    if (rn) { e.stopPropagation(); const id = rn.dataset.frename, f = S.folders[id]; const name = await askFolderName('Rename folder', f && f.name); if (name) B.update(`teachers/${S.uid}/folders/${id}`, { name }); return; }
+    const dl = e.target.closest('[data-fdel]');
+    if (dl) {
+      e.stopPropagation(); const id = dl.dataset.fdel, f = S.folders[id];
+      const inside = Object.keys(S.tests).filter(t => S.tests[t].folder === id);
+      if (!(await confirmBox(`Delete the folder "${f ? f.name : ''}"?`, inside.length ? `The ${inside.length} test${inside.length === 1 ? '' : 's'} inside are kept and move to "No folder".` : 'It is empty.', 'Delete folder', true))) return;
+      const u = {}; inside.forEach(t => { u[`tests/${t}/folder`] = null; }); u[`folders/${id}`] = null;
+      await B.update(`teachers/${S.uid}`, u);
+      if (S.editing && S.editing.folder === id) S.editing.folder = '';
+      return;
+    }
+    const fh = e.target.closest('[data-fold]');
+    if (fh) { const fid = fh.dataset.fold; setFolderOpen(fid || 'none', !folderOpen(fid || 'none')); renderTestList(); return; }
     const c = e.target.closest('.tcard'); if (!c) return;
     if (S.dirty && !(await confirmBox('Discard unsaved changes?', '', 'Discard', true))) return;
     openEditor(JSON.parse(JSON.stringify(S.tests[c.dataset.tid])));
@@ -787,7 +852,9 @@
   };
   $('#newTest').addEventListener('click', async () => {
     if (S.dirty && !(await confirmBox('Discard unsaved changes?', '', 'Discard', true))) return;
-    openEditor({ id: 't' + EL.rid(8), title: '', timeLimit: 0, shuffle: false, pick: 0, nsets: 1, questions: [newQ('mc')] });
+    // a new test goes into the folder that is open on its own (if exactly one is open)
+    const open = Object.keys(S.folders || {}).filter(folderOpen);
+    openEditor({ id: 't' + EL.rid(8), title: '', timeLimit: 0, shuffle: false, pick: 0, nsets: 1, folder: open.length === 1 ? open[0] : '', questions: [newQ('mc')] });
     S.dirty = true;
   });
   function openEditor(t) {
@@ -806,6 +873,7 @@
     $('#edEmpty').classList.add('hidden'); $('#edMain').classList.remove('hidden');
     $('#edTitle').value = t.title || ''; $('#edTime').value = t.timeLimit || 0; $('#edShuffle').checked = !!t.shuffle;
     $('#edPick').value = t.pick || 0; $('#edSets').value = String(Math.min(6, t.nsets));
+    fillFolderSelect();
     edTab('qs');
     renderEditor(); renderTestList();
   }
@@ -910,6 +978,11 @@
   $('#edTitle').addEventListener('input', () => { S.editing.title = $('#edTitle').value; markDirty(); });
   $('#edTime').addEventListener('input', () => { S.editing.timeLimit = Math.max(0, Number($('#edTime').value) || 0); markDirty(); });
   $('#edShuffle').addEventListener('change', () => { S.editing.shuffle = $('#edShuffle').checked; markDirty(); });
+  $('#edFolder').addEventListener('change', () => {
+    S.editing.folder = $('#edFolder').value || '';
+    // a saved test moves right away; a new one moves when it is saved
+    if (S.tests[S.editing.id]) moveTest(S.editing.id, S.editing.folder); else markDirty();
+  });
   $('#edPick').addEventListener('input', () => { S.editing.pick = Math.max(0, Math.round(Number($('#edPick').value) || 0)); markDirty(); });
   $('#edSets').addEventListener('change', () => { S.editing.nsets = Number($('#edSets').value) || 1; markDirty(); if (S.edTab === 'sets') renderSetsPane(); });
   $('#edQs').addEventListener('input', e => {
