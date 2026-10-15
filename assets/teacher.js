@@ -67,6 +67,7 @@
     S.uid = B.uid();
     $('#auth').classList.add('hidden');
     $('#app').classList.remove('hidden');
+    BioBG.setLevel(.4);   // behind the dashboard the hologram is only a quiet backdrop
     const mp = $('#modePill');
     mp.className = 'modepill ' + (B.mode === 'demo' ? 'demo' : 'online');
     mp.title = B.mode === 'demo' ? 'Demo: this browser only' : 'Online: iPads can join';
@@ -731,7 +732,7 @@
     ssStats();
     const m = S.meta; if (!m || !S.code) return;
     const n = Object.keys(S.students).length;
-    let sub = `${S.questions.length} questions · code ${S.code}`;
+    let sub = `${metaSets(m) ? EL.asArray(metaSets(m)[0].ids).length : S.questions.length} questions · code ${S.code}`;
     let timerTxt = '--:--', cls = '';
     if (isPres()) {
       sub = isScreen() ? `${SS.stream ? 'Sharing your screen' : 'Not sharing'} · code ${S.code} · ${n} watching`

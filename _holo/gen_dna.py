@@ -1,0 +1,92 @@
+"""Build an ideal B-DNA helix from the real crystal structure 1BNA (Drew & Dickerson 1981).
+Each base pair of 1BNA is cut out, the screw axis between neighbouring pairs is measured
+(rise, twist, where the helix axis sits), and the middle pairs are repeated along that screw.
+Output: compact JS data (Int16 = 0.1 Å) with element, strand and backbone/base role per atom."""
+import sys, numpy as np, json
+
+pdb = sys.argv[1]; out = sys.argv[2]; NBP = int(sys.argv[3]) if len(sys.argv) > 3 else 24
+atoms = []
+for line in open(pdb):
+    if not line.startswith('ATOM'): continue
+    name = line[12:16].strip(); res = line[17:20].strip(); ch = line[21]; num = int(line[22:26])
+    xyz = np.array([float(line[30:38]), float(line[38:46]), float(line[46:54])])
+    el = line[76:78].strip() or name[0]
+    atoms.append(dict(name=name, res=res, ch=ch, num=num, xyz=xyz, el=el))
+
+BACK = {"P", "OP1", "OP2", "O5'", "C5'", "C4'", "O4'", "C3'", "O3'", "C2'", "C1'"}
+def residue(ch, num): return [a for a in atoms if a['ch'] == ch and a['num'] == num]
+# strand A = residues 1..12, strand B = 13..24, A k pairs with B 25-k
+def bp_atoms(k): return residue('A', k), residue('B', 25 - k)
+
+def frame(k):
+    """A rough per-base-pair frame: origin between the two C1' atoms, y along C1'->C1',
+    z roughly along the helix (from the normal of the base plane), x = y × z."""
+    a, b = bp_atoms(k)
+    c1a = next(x['xyz'] for x in a if x['name'] == "C1'"); c1b = next(x['xyz'] for x in b if x['name'] == "C1'")
+    base = np.array([x['xyz'] for x in a + b if x['name'] not in BACK])
+    c = base - base.mean(0); _, _, vt = np.linalg.svd(c); n = vt[2]
+    y = c1b - c1a; y /= np.linalg.norm(y)
+    z = n - y * (n @ y); z /= np.linalg.norm(z)
+    o = (c1a + c1b) / 2
+    return o, np.stack([np.cross(y, z), y, z], 1)  # columns x, y, z
+
+frames = {k: frame(k) for k in range(1, 13)}
+# keep z pointing from pair k to k+1
+for k in range(1, 13):
+    o, R = frames[k]
+    nxt = frames[min(k + 1, 12)][0] - o if k < 12 else o - frames[k - 1][0]
+    if R[:, 2] @ nxt < 0: R = R @ np.diag([-1, 1, -1]); frames[k] = (o, R)
+
+# screw motion between neighbouring pairs, expressed in the local frame of pair k
+axes, rises, twists = [], [], []
+for k in range(2, 11):          # inner steps only (ends fray in crystals)
+    o1, R1 = frames[k]; o2, R2 = frames[k + 1]
+    Rl = R1.T @ R2; tl = R1.T @ (o2 - o1)
+    ang = np.arccos(np.clip((np.trace(Rl) - 1) / 2, -1, 1))
+    u = np.array([Rl[2, 1] - Rl[1, 2], Rl[0, 2] - Rl[2, 0], Rl[1, 0] - Rl[0, 1]]); u /= np.linalg.norm(u)
+    if u[2] < 0: u = -u; ang = -ang
+    rise = tl @ u
+    p, *_ = np.linalg.lstsq(np.eye(3) - Rl, tl - rise * u, rcond=None)
+    p = p - u * (p @ u)
+    axes.append((u, p)); rises.append(rise); twists.append(np.degrees(ang))
+u = np.mean([a[0] for a in axes], 0); u /= np.linalg.norm(u)
+p = np.mean([a[1] for a in axes], 0); p = p - u * (p @ u)
+rise = float(np.mean(rises)); twist = float(np.mean(twists))
+print(f'measured: rise {rise:.2f} Å, twist {twist:.1f}°, {360/twist:.1f} bp/turn, axis offset {np.linalg.norm(p):.2f} Å')
+# use textbook B-DNA values for the repeat (10.5 bp/turn, 3.38 Å), close to what 1BNA shows
+twist_use, rise_use = 360 / 10.5, 3.38
+
+# helix frame inside each pair's local frame: origin on the axis, z = axis
+zx = u; xx = np.array([1.0, 0, 0]); xx = xx - zx * (xx @ zx); xx /= np.linalg.norm(xx); yx = np.cross(zx, xx)
+H = np.stack([xx, yx, zx], 1)
+
+def local_atoms(k):
+    o, R = frames[k]; a, b = bp_atoms(k)
+    out = []
+    for strand, lst in ((0, a), (1, b)):
+        for x in lst:
+            v = R.T @ (x['xyz'] - o)          # into pair frame
+            v = H.T @ (v - p)                 # into helix frame
+            out.append((v, x['el'], strand, 0 if x['name'] in BACK else 1, x['name']))
+    return out
+
+templates = {k: local_atoms(k) for k in range(3, 11)}
+# a realistic-looking mixed sequence from the inner pairs of 1BNA (G-C, A-T, T-A, C-G all appear)
+order = [3, 5, 7, 4, 9, 6, 10, 8]
+pos, el, strand, role, bpidx = [], [], [], [], []
+EL = {'C': 0, 'N': 1, 'O': 2, 'P': 3}
+for n in range(NBP):
+    th = np.radians(twist_use * n); c, s = np.cos(th), np.sin(th)
+    Rz = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+    for v, e, st, ro, nm in templates[order[n % len(order)]]:
+        if n == 0 and nm in ('P', 'OP1', 'OP2') and st == 0: pass
+        w = Rz @ v + np.array([0, 0, rise_use * n])
+        pos.append(w); el.append(EL.get(e, 0)); strand.append(st); role.append(ro); bpidx.append(n)
+pos = np.array(pos); pos[:, 2] -= pos[:, 2].mean()
+r = np.hypot(pos[:, 0], pos[:, 1])
+print(f'{len(pos)} atoms, {NBP} bp, radius max {r.max():.1f} Å, height {np.ptp(pos[:,2]):.1f} Å')
+q = np.round(pos * 10).astype(int).flatten().tolist()
+data = dict(n=len(pos), bp=NBP, rise=rise_use, twist=twist_use, pos=q, el=el, strand=strand, role=role, bpi=bpidx,
+            src='PDB 1BNA (Drew et al. 1981, PNAS 78:2179), ideal repeat 10.5 bp/turn, 3.38 Å rise')
+with open(out, 'w', encoding='utf-8') as f:
+    f.write('// generated by gen_dna.py from PDB 1BNA - do not edit\nexport const DNA = ' + json.dumps(data, separators=(',', ':')) + ';\n')
