@@ -1,82 +1,129 @@
-// Holographic background: a real B-DNA molecule (atoms from PDB 1BNA) projected above a
-// holo-table base, like a lab hologram. Bundled to assets/holo-bg.js by _holo/build.mjs.
-// Same small API as before: BioBG.start({ level }), BioBG.setLevel(0..1).
+// Holo-table: real biological structures as holograms, one after another. The glowing particles of
+// one specimen fly apart and rebuild the next (DNA -> hemoglobin -> virus -> neuron -> cell).
+// Data: _holo/specimens.js (PDB 1BNA, 2HHB, 1A34, NeuroMorpho CSp0114-1, HoloCell model).
+// Bundled to assets/holo-bg.js by _holo/build.mjs. API: BioBG.start({ level }), BioBG.setLevel(0..1).
 import {
-  WebGLRenderer, Scene, PerspectiveCamera, Group, Color, Vector3, Matrix4, Quaternion,
-  InstancedMesh, IcosahedronGeometry, InstancedBufferAttribute, ShaderMaterial, AdditiveBlending,
-  CatmullRomCurve3, TubeGeometry, Mesh, PlaneGeometry, CylinderGeometry, BufferGeometry,
-  Float32BufferAttribute, Points, DoubleSide, MathUtils
+  WebGLRenderer, Scene, PerspectiveCamera, Group, Vector3, ShaderMaterial, AdditiveBlending,
+  Mesh, PlaneGeometry, CylinderGeometry, BufferGeometry, BufferAttribute, Float32BufferAttribute,
+  Points, LineSegments, DoubleSide, MathUtils
 } from 'three';
-import { DNA } from './dna_data.js';
+import { SPECIMENS } from './specimens.js';
 
-const S = 0.1;                         // 1 Å = 0.1 scene units
-const RADIUS = { 0: 1.70, 1: 1.55, 2: 1.52, 3: 1.80 };   // van der Waals radii: C N O P
 const page = document.body.dataset.holo || 'home';
-let renderer, scene, camera, root, helix, mats = [], clockStart = 0, level = 1, target = 1, running = false, lastFrame = 0;
-let labels = null, mouse = { x: 0, y: 0, sx: 0, sy: 0 };
+const HOLD = page === 'home' ? 11 : 16, MORPH = 2.6;          // seconds on show, seconds to rebuild
+let renderer, scene, camera, root, spin, mats = [], t0 = 0, level = 1, target = 1, running = false, lastFrame = 0;
+let points, lineObjs = [], specs = [], cur = 0, next = 0, phase = 'hold', phaseT = 0, caption = null;
+const mouse = { x: 0, y: 0, sx: 0, sy: 0 };
+const DIM = page === 'student' ? 0.85 : page === 'teacher' ? 0.9 : 1;
 
-const COMMON = /* glsl */`
-  uniform float uTime; uniform float uLevel;
-  float hash(float n) { return fract(sin(n) * 43758.5453); }
-`;
+// ---------------------------------------------------------------- data
+function decode(s, Type) { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Type(u.buffer); }
+function loadSpecimens() {
+  return SPECIMENS.map(s => {
+    const q = decode(s.pos, Int16Array), cat = decode(s.cat, Uint8Array), size = decode(s.size, Uint8Array), lines = decode(s.lines, Uint16Array);
+    const pos = new Float32Array(s.n * 3), col = new Float32Array(s.n * 3), sz = new Float32Array(s.n);
+    for (let i = 0; i < s.n; i++) {
+      pos[i * 3] = q[i * 3] / 3000; pos[i * 3 + 1] = q[i * 3 + 1] / 3000; pos[i * 3 + 2] = q[i * 3 + 2] / 3000;
+      const c = s.pal[cat[i]] || [0.4, 0.85, 1]; col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
+      sz[i] = size[i] * 0.004;
+    }
+    return { ...s, P: pos, C: col, Z: sz, L: lines };
+  });
+}
 
-function atomMaterial() {
+const COMMON = /* glsl */`uniform float uTime; uniform float uLevel;`;
+
+// ---------------------------------------------------------------- the particles (one set, morphing)
+function particleMaterial() {
   return new ShaderMaterial({
     transparent: true, depthWrite: false, blending: AdditiveBlending,
-    uniforms: { uTime: { value: 0 }, uLevel: { value: 1 }, uScan: { value: 0 }, uHalf: { value: 4.1 } },
+    uniforms: { uTime: { value: 0 }, uLevel: { value: 1 }, uMix: { value: 0 }, uPx: { value: 1 }, uScan: { value: 0 }, uH: { value: 4 } },
     vertexShader: COMMON + /* glsl */`
-      attribute vec3 aScatter; attribute float aKind; attribute float aDelay;
-      uniform float uScan; uniform float uHalf;
-      varying vec3 vN; varying vec3 vV; varying float vKind; varying float vBand; varying float vIn;
+      attribute vec3 aPosB; attribute vec3 aCol; attribute vec3 aColB; attribute float aSize; attribute float aSizeB; attribute float aSeed;
+      uniform float uMix; uniform float uPx; uniform float uScan; uniform float uH;
+      varying vec3 vCol; varying float vA; varying float vBand;
       void main() {
-        // assemble: every atom flies in from a scattered start to its real place
-        float t = clamp((uTime - aDelay) / 1.6, 0.0, 1.0);
-        float e = 1.0 - pow(1.0 - t, 3.0);
-        vIn = t;
-        vec4 local = instanceMatrix * vec4(position, 1.0);
-        local.xyz += aScatter * (1.0 - e);
-        vec4 wp = modelMatrix * local;
-        vec4 mv = viewMatrix * wp;
-        vN = normalize(normalMatrix * mat3(instanceMatrix) * normal);
-        vV = normalize(-mv.xyz);
-        vKind = aKind;
-        float y = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).z;      // height along the helix axis
-        vBand = exp(-pow((y - uScan) / 0.45, 2.0));
+        // each particle leaves at its own moment, flies out on a curve and lands in the new shape
+        float t = clamp(uMix * 1.5 - aSeed * 0.5, 0.0, 1.0);
+        float e = t < 0.5 ? 4.0 * t * t * t : 1.0 - pow(-2.0 * t + 2.0, 3.0) / 2.0;
+        vec3 mid = normalize(vec3(sin(aSeed * 91.0), cos(aSeed * 57.0) * 0.6, cos(aSeed * 33.0)) + 0.001) * (2.4 + aSeed * 2.2);
+        vec3 p = mix(position, aPosB, e) + mid * sin(3.14159 * e) * 0.9;
+        float s = mix(aSize, aSizeB, e);
+        vCol = mix(aCol, aColB, e);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        vBand = exp(-pow((p.y - uScan) / (uH * 0.06), 2.0));
+        vA = step(0.0001, s) * (0.85 + 0.15 * sin(uTime * 2.0 + aSeed * 60.0));
+        gl_PointSize = max(1.6, s * uPx * 820.0 / -mv.z);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: COMMON + /* glsl */`
-      varying vec3 vN; varying vec3 vV; varying float vKind; varying float vBand; varying float vIn;
+      varying vec3 vCol; varying float vA; varying float vBand;
       void main() {
-        float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
-        float rim = pow(f, 2.2);
-        // backbone = holo cyan, bases = pale ice blue, phosphorus = warm gold
-        vec3 c = vKind < 0.5 ? vec3(0.20, 0.72, 1.0) : vKind < 1.5 ? vec3(0.62, 0.93, 1.0) : vec3(1.0, 0.74, 0.32);
-        float a = (0.10 + rim * 0.95) * (0.75 + 0.6 * vBand);
-        vec3 col = c * a * 1.25 + vec3(0.7, 0.95, 1.0) * vBand * rim * 0.35;
-        gl_FragColor = vec4(col * uLevel * smoothstep(0.0, 0.35, vIn), 1.0);
+        vec2 c = gl_PointCoord * 2.0 - 1.0; float d = dot(c, c);
+        if (d > 1.0 || vA <= 0.0) discard;
+        float nz = sqrt(1.0 - d);
+        float rim = pow(1.0 - nz, 2.0);                     // glass sphere: bright edge, clear middle
+        float edge = smoothstep(1.0, 0.86, d);
+        vec3 col = vCol * (0.22 + rim * 1.25) * edge + vec3(0.75, 0.95, 1.0) * vBand * 0.35 * edge;
+        gl_FragColor = vec4(col * vA * uLevel, 1.0);
       }`
   });
 }
-
-function strandMaterial(color) {
+function lineMaterial() {
   return new ShaderMaterial({
     transparent: true, depthWrite: false, blending: AdditiveBlending,
-    uniforms: { uTime: { value: 0 }, uLevel: { value: 1 }, uColor: { value: new Color(color) } },
-    vertexShader: /* glsl */`varying vec2 vUv; varying vec3 vN; varying vec3 vV;
-      void main() { vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
-    fragmentShader: COMMON + /* glsl */`uniform vec3 uColor; varying vec2 vUv; varying vec3 vN; varying vec3 vV;
-      void main() {
-        float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.5);
-        // a pulse of light travelling along the backbone
-        float p = fract(vUv.x * 3.0 - uTime * 0.12);
-        float pulse = smoothstep(0.0, 0.04, p) * (1.0 - smoothstep(0.04, 0.22, p));
-        float show = smoothstep(1.2, 2.4, uTime);
-        gl_FragColor = vec4(uColor * (0.18 + rim * 0.55 + pulse * 0.9) * uLevel * show, 1.0);
-      }`
+    uniforms: { uTime: { value: 0 }, uLevel: { value: 1 }, uShow: { value: 0 } },
+    vertexShader: `attribute vec3 color; varying vec3 vC; varying float vY; void main() { vC = color; vY = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: COMMON + `uniform float uShow; varying vec3 vC; varying float vY;
+      void main() { float pulse = 0.65 + 0.35 * sin(vY * 3.0 - uTime * 2.2); gl_FragColor = vec4(vC * 0.55 * pulse * uShow * uLevel, 1.0); }`
   });
 }
+function buildParticles() {
+  const N = Math.max(...specs.map(s => s.n));
+  const g = new BufferGeometry();
+  const seed = new Float32Array(N);
+  for (let i = 0; i < N; i++) seed[i] = Math.random();
+  g.setAttribute('position', new BufferAttribute(new Float32Array(N * 3), 3));
+  g.setAttribute('aPosB', new BufferAttribute(new Float32Array(N * 3), 3));
+  g.setAttribute('aCol', new BufferAttribute(new Float32Array(N * 3), 3));
+  g.setAttribute('aColB', new BufferAttribute(new Float32Array(N * 3), 3));
+  g.setAttribute('aSize', new BufferAttribute(new Float32Array(N), 1));
+  g.setAttribute('aSizeB', new BufferAttribute(new Float32Array(N), 1));
+  g.setAttribute('aSeed', new BufferAttribute(seed, 1));
+  const m = particleMaterial(); mats.push(m);
+  points = new Points(g, m); points.frustumCulled = false;
+  points.userData.N = N;
+  return points;
+}
+// put specimen s into slot A (from) or B (to). Spare particles sit on the shape's own points, unseen.
+function fill(slot, s, scatter) {
+  const g = points.geometry, N = points.userData.N, A = slot === 'A';
+  const P = g.attributes[A ? 'position' : 'aPosB'].array, C = g.attributes[A ? 'aCol' : 'aColB'].array, Z = g.attributes[A ? 'aSize' : 'aSizeB'].array;
+  for (let i = 0; i < N; i++) {
+    const j = i % s.n;
+    if (scatter) {
+      const a = Math.random() * 6.283, r = 3 + Math.random() * 5;
+      P[i * 3] = Math.cos(a) * r; P[i * 3 + 1] = (Math.random() - .5) * 9; P[i * 3 + 2] = Math.sin(a) * r;
+    } else { P[i * 3] = s.P[j * 3]; P[i * 3 + 1] = s.P[j * 3 + 1]; P[i * 3 + 2] = s.P[j * 3 + 2]; }
+    C[i * 3] = s.C[j * 3]; C[i * 3 + 1] = s.C[j * 3 + 1]; C[i * 3 + 2] = s.C[j * 3 + 2];
+    Z[i] = i < s.n ? s.Z[i] : 0;
+  }
+  for (const k of ['position', 'aPosB', 'aCol', 'aColB', 'aSize', 'aSizeB']) g.attributes[k].needsUpdate = true;
+}
+function buildLines(s) {
+  if (!s.L.length) return null;
+  const n = s.L.length, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  for (let k = 0; k < n; k++) {
+    const i = s.L[k];
+    pos[k * 3] = s.P[i * 3]; pos[k * 3 + 1] = s.P[i * 3 + 1]; pos[k * 3 + 2] = s.P[i * 3 + 2];
+    col[k * 3] = s.C[i * 3]; col[k * 3 + 1] = s.C[i * 3 + 1]; col[k * 3 + 2] = s.C[i * 3 + 2];
+  }
+  const g = new BufferGeometry(); g.setAttribute('position', new BufferAttribute(pos, 3)); g.setAttribute('color', new BufferAttribute(col, 3));
+  const m = lineMaterial(); mats.push(m);
+  const l = new LineSegments(g, m); l.frustumCulled = false; return l;
+}
 
-// the holo-table: a flat disc of rings, ticks and turning segments, drawn in a shader
+// ---------------------------------------------------------------- holo-table: base rings, beam, dust
 function baseMaterial() {
   return new ShaderMaterial({
     transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide,
@@ -87,27 +134,19 @@ function baseMaterial() {
       void main() {
         vec2 p = vUv * 2.0 - 1.0; float r = length(p); float a = atan(p.y, p.x);
         if (r > 1.0) discard;
-        float T = uTime;
-        float v = 0.0;
+        float T = uTime, v = 0.0;
         v += ring(r, 0.30, 0.006) * 0.9 + ring(r, 0.47, 0.004) * 0.6 + ring(r, 0.72, 0.003) * 0.5 + ring(r, 0.97, 0.004) * 0.7;
-        // dashed ring turning one way, segmented arc the other way
-        float d1 = step(0.5, fract((a + T * 0.25) * 18.0 / 6.2832)); v += ring(r, 0.56, 0.012) * d1 * 0.75;
-        float arc = step(0.0, sin(a * 3.0 - T * 0.4)) * step(0.35, fract((a - T * 0.4) * 3.0 / 6.2832));
-        v += ring(r, 0.84, 0.018) * arc * 0.55;
-        // tick marks on the outer ring
-        float tick = step(0.82, fract(a * 72.0 / 6.2832)) * smoothstep(0.88, 0.9, r) * smoothstep(0.96, 0.94, r);
-        v += tick * 0.5;
-        float major = step(0.9, fract(a * 12.0 / 6.2832)) * smoothstep(0.86, 0.87, r) * smoothstep(0.97, 0.96, r);
-        v += major * 0.7;
-        // glow under the molecule
+        v += ring(r, 0.56, 0.012) * step(0.5, fract((a + T * 0.25) * 18.0 / 6.2832)) * 0.75;
+        v += ring(r, 0.84, 0.018) * step(0.0, sin(a * 3.0 - T * 0.4)) * step(0.35, fract((a - T * 0.4) * 3.0 / 6.2832)) * 0.55;
+        v += step(0.82, fract(a * 72.0 / 6.2832)) * smoothstep(0.88, 0.9, r) * smoothstep(0.96, 0.94, r) * 0.5;
+        v += step(0.9, fract(a * 12.0 / 6.2832)) * smoothstep(0.86, 0.87, r) * smoothstep(0.97, 0.96, r) * 0.7;
         v += exp(-r * r * 18.0) * 0.55 + exp(-r * 4.0) * 0.12;
-        float boot = smoothstep(0.0, 1.0, (T * 0.9) - r);   // rings light up from the centre outward
+        float boot = smoothstep(0.0, 1.0, (T * 0.9) - r);
         vec3 col = mix(vec3(0.15, 0.62, 1.0), vec3(0.55, 0.92, 1.0), exp(-r * 3.0));
         gl_FragColor = vec4(col * v * boot * uLevel, 1.0);
       }`
   });
 }
-
 function beamMaterial() {
   return new ShaderMaterial({
     transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide,
@@ -116,16 +155,13 @@ function beamMaterial() {
     fragmentShader: COMMON + /* glsl */`varying vec2 vUv; varying vec3 vN; varying vec3 vV;
       void main() {
         float edge = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.0);
-        float h = vUv.y;                                     // 0 = base, 1 = top
-        float fade = pow(1.0 - h, 1.6);
+        float h = vUv.y, fade = pow(1.0 - h, 1.6);
         float lines = 0.6 + 0.4 * step(0.5, fract(vUv.x * 60.0));
         float flow = 0.75 + 0.25 * sin(h * 40.0 - uTime * 2.0);
-        float a = fade * (0.05 + edge * 0.16) * lines * flow * smoothstep(0.4, 1.4, uTime);
-        gl_FragColor = vec4(vec3(0.25, 0.75, 1.0) * a * uLevel, 1.0);
+        gl_FragColor = vec4(vec3(0.25, 0.75, 1.0) * fade * (0.04 + edge * 0.14) * lines * flow * smoothstep(0.4, 1.4, uTime) * uLevel, 1.0);
       }`
   });
 }
-
 function dustMaterial() {
   return new ShaderMaterial({
     transparent: true, depthWrite: false, blending: AdditiveBlending,
@@ -133,110 +169,71 @@ function dustMaterial() {
     vertexShader: COMMON + /* glsl */`attribute float aSeed; uniform float uPx; varying float vA;
       void main() {
         vec3 p = position;
-        p.y = mod(p.y + uTime * (0.12 + aSeed * 0.25), 12.0) - 6.0;     // drift up and wrap
+        p.y = mod(p.y + uTime * (0.12 + aSeed * 0.25), 12.0) - 6.0;
         p.x += sin(uTime * 0.3 + aSeed * 30.0) * 0.15;
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
         vA = (0.35 + 0.65 * abs(sin(uTime * (0.6 + aSeed) + aSeed * 40.0))) * smoothstep(6.0, 3.5, abs(p.y));
         gl_PointSize = uPx * (1.4 + aSeed * 2.4) * (14.0 / -mv.z);
         gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: COMMON + `varying float vA; void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard; float g = pow(1.0 - d * 2.0, 2.0); gl_FragColor = vec4(vec3(0.45, 0.85, 1.0) * g * vA * 0.7 * uLevel, 1.0); }`
+    fragmentShader: `uniform float uLevel; varying float vA; void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard; gl_FragColor = vec4(vec3(0.45, 0.85, 1.0) * pow(1.0 - d * 2.0, 2.0) * vA * 0.6 * uLevel, 1.0); }`
   });
 }
-
-function buildHelix() {
+function buildTable() {
   const g = new Group();
-  const n = DNA.n, P = DNA.pos;
-  const geo = new IcosahedronGeometry(1, 2);
-  const mat = atomMaterial(); mats.push(mat);
-  const mesh = new InstancedMesh(geo, mat, n);
-  const kind = new Float32Array(n), scatter = new Float32Array(n * 3), delay = new Float32Array(n);
-  const m = new Matrix4(), q = new Quaternion(), sc = new Vector3(), v = new Vector3();
-  const half = DNA.bp * DNA.rise * S / 2;
-  for (let i = 0; i < n; i++) {
-    v.set(P[i * 3] / 10 * S, P[i * 3 + 1] / 10 * S, P[i * 3 + 2] / 10 * S);
-    const r = RADIUS[DNA.el[i]] * 0.48 * S;
-    sc.set(r, r, r);
-    m.compose(v, q, sc); mesh.setMatrixAt(i, m);
-    kind[i] = DNA.el[i] === 3 ? 2 : DNA.role[i];
-    // scattered start: out from the axis and spread in height
-    const ang = Math.random() * Math.PI * 2, rad = 2 + Math.random() * 5;
-    scatter[i * 3] = Math.cos(ang) * rad; scatter[i * 3 + 1] = Math.sin(ang) * rad; scatter[i * 3 + 2] = (Math.random() - .5) * 6;
-    delay[i] = 0.15 + (v.z + half) / (half * 2) * 0.9 + Math.random() * 0.25;    // builds from the bottom up
-  }
-  geo.setAttribute('aKind', new InstancedBufferAttribute(kind, 1));
-  geo.setAttribute('aScatter', new InstancedBufferAttribute(scatter, 3));
-  geo.setAttribute('aDelay', new InstancedBufferAttribute(delay, 1));
-  mesh.frustumCulled = false;
-  g.add(mesh);
-  // the two sugar-phosphate backbones as glowing ribbons through the phosphorus atoms
-  for (const st of [0, 1]) {
-    const pts = [];
-    for (let i = 0; i < n; i++) if (DNA.el[i] === 3 && DNA.strand[i] === st) pts.push(new Vector3(P[i * 3] / 10 * S, P[i * 3 + 1] / 10 * S, P[i * 3 + 2] / 10 * S));
-    pts.sort((a, b) => a.z - b.z);
-    if (pts.length < 4) continue;
-    const curve = new CatmullRomCurve3(pts);
-    const sm = strandMaterial(st ? 0x58d8ff : 0x7fe3ff); mats.push(sm);
-    const tube = new Mesh(new TubeGeometry(curve, pts.length * 8, 0.03, 6, false), sm);
-    tube.frustumCulled = false;
-    g.add(tube);
-  }
-  // the helix axis stands up (data z -> scene y)
-  g.rotation.x = -Math.PI / 2;
-  const wrap = new Group(); wrap.add(g);
-  wrap.userData.half = half; wrap.userData.atoms = mesh;
-  return wrap;
-}
-
-function buildTable(half) {
-  const g = new Group();
-  const base = new Mesh(new PlaneGeometry(7, 7), baseMaterial()); mats.push(base.material);
-  base.rotation.x = -Math.PI / 2; base.position.y = -half - 0.9;
-  g.add(base);
-  const beam = new Mesh(new CylinderGeometry(1.9, 2.4, half * 2 + 1.6, 64, 1, true), beamMaterial()); mats.push(beam.material);
-  beam.position.y = 0;
-  g.add(beam);
-  // dust in the beam
-  const N = 420, pos = new Float32Array(N * 3), seed = new Float32Array(N);
-  for (let i = 0; i < N; i++) {
-    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 3.4;
-    pos[i * 3] = Math.cos(a) * r; pos[i * 3 + 1] = Math.random() * 12 - 6; pos[i * 3 + 2] = Math.sin(a) * r; seed[i] = Math.random();
-  }
+  const base = new Mesh(new PlaneGeometry(7.4, 7.4), baseMaterial()); mats.push(base.material);
+  base.rotation.x = -Math.PI / 2; base.position.y = -5.0; g.add(base);
+  const beam = new Mesh(new CylinderGeometry(2.0, 2.6, 9.6, 64, 1, true), beamMaterial()); mats.push(beam.material);
+  beam.position.y = -0.2; g.add(beam);
+  const N = 380, pos = new Float32Array(N * 3), seed = new Float32Array(N);
+  for (let i = 0; i < N; i++) { const a = Math.random() * 6.283, r = Math.sqrt(Math.random()) * 3.4; pos[i * 3] = Math.cos(a) * r; pos[i * 3 + 1] = Math.random() * 12 - 6; pos[i * 3 + 2] = Math.sin(a) * r; seed[i] = Math.random(); }
   const dg = new BufferGeometry(); dg.setAttribute('position', new Float32BufferAttribute(pos, 3)); dg.setAttribute('aSeed', new Float32BufferAttribute(seed, 1));
-  const dust = new Points(dg, dustMaterial()); mats.push(dust.material); dust.frustumCulled = false;
-  g.add(dust);
+  const dust = new Points(dg, dustMaterial()); mats.push(dust.material); dust.frustumCulled = false; g.add(dust);
   return g;
 }
 
-// ---------------------------------------------------------------- labels (home page only)
-function buildLabels() {
-  const host = document.createElement('div'); host.className = 'holo-labels'; host.setAttribute('aria-hidden', 'true');
-  const items = [
-    { t: 'B-DNA', s: 'real atom positions · PDB 1BNA', at: [0, 0.62, 0], side: -1 },
-    { t: '3.4 nm per turn', s: '10.5 base pairs', at: [0, 0.12, 0], side: -1 }
-  ];
-  host.innerHTML = '<svg class="holo-lines"></svg>' + items.map(it => `<div class="holo-lab ${it.side > 0 ? 'r' : 'l'}"><b>${it.t}</b><span>${it.s}</span></div>`).join('');
-  document.body.appendChild(host);
-  return { host, items, els: [...host.querySelectorAll('.holo-lab')], svg: host.querySelector('svg') };
+// ---------------------------------------------------------------- caption under the table
+function buildCaption() {
+  const el = document.createElement('div'); el.className = 'holo-cap'; el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = '<div class="hc-top"><span class="hc-n"></span><span class="hc-src"></span></div><b class="hc-name"></b><span class="hc-th"></span><p class="hc-note"></p><div class="hc-dots"></div>';
+  document.body.appendChild(el);
+  el.querySelector('.hc-dots').innerHTML = specs.map(() => '<i></i>').join('');
+  return el;
+}
+function showCaption(i) {
+  if (!caption) return;
+  const s = specs[i];
+  caption.classList.remove('in'); void caption.offsetWidth;
+  caption.querySelector('.hc-n').textContent = String(i + 1).padStart(2, '0') + ' / ' + String(specs.length).padStart(2, '0');
+  caption.querySelector('.hc-src').textContent = s.src;
+  caption.querySelector('.hc-name').textContent = s.name;
+  caption.querySelector('.hc-th').textContent = s.th;
+  caption.querySelector('.hc-note').textContent = s.note;
+  [...caption.querySelectorAll('.hc-dots i')].forEach((d, k) => d.classList.toggle('on', k === i));
+  caption.classList.add('in');
 }
 const tmp = new Vector3();
-function placeLabels(t) {
-  if (!labels) return;
-  const W = innerWidth, H = innerHeight, half = helix.userData.half;
-  const show = Math.min(1, Math.max(0, (t - 2.2) / .8)) * level;
-  labels.host.style.opacity = show;
-  if (show <= 0) return;
-  let lines = '';
-  labels.items.forEach((it, i) => {
-    // anchor on the helix surface, facing the camera side
-    tmp.set(it.side * 1.15, it.at[1] * half, 0); root.localToWorld(tmp); tmp.project(camera);
-    const x = (tmp.x + 1) / 2 * W, y = (1 - tmp.y) / 2 * H;
-    const lx = x + it.side * Math.min(170, W * .12), ly = y - 18;
-    const el = labels.els[i];
-    el.style.transform = `translate(${it.side > 0 ? lx + 8 : lx - 8 - el.offsetWidth}px, ${ly - el.offsetHeight / 2}px)`;
-    lines += `<path d="M${x.toFixed(1)} ${y.toFixed(1)} L${(x + it.side * 22).toFixed(1)} ${ly.toFixed(1)} L${lx.toFixed(1)} ${ly.toFixed(1)}"/><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.6"/>`;
-  });
-  labels.svg.innerHTML = lines;
+function placeCaption() {
+  if (!caption) return;
+  caption.style.opacity = Math.min(1, level * 1.4);      // its place is set in CSS per page
+}
+
+// ---------------------------------------------------------------- show order
+function setShow(i, fromScatter) {
+  next = i;
+  if (fromScatter) fill('A', specs[i], true);
+  fill('B', specs[i]);
+  points.material.uniforms.uMix.value = 0;
+  phase = 'morph'; phaseT = 0;
+  lineObjs.forEach(l => { if (l) l.visible = false; });
+}
+function finishMorph() {
+  cur = next;
+  fill('A', specs[cur]);
+  points.material.uniforms.uMix.value = 0;
+  phase = 'hold'; phaseT = 0;
+  const l = lineObjs[cur]; if (l) { l.visible = true; l.material.uniforms.uShow.value = 0; }
+  showCaption(cur);
 }
 
 // ---------------------------------------------------------------- layout per page
@@ -245,10 +242,10 @@ function layout() {
   renderer.setSize(W, H, false);
   camera.aspect = asp; camera.updateProjectionMatrix();
   const dist = 21, halfH = Math.tan(MathUtils.degToRad(camera.fov / 2)) * dist, halfW = halfH * asp;
-  let x = 0, y = 0.2, s = 1;
-  if (page === 'home') { if (asp > 1.05) { x = halfW * 0.44; y = 0.9; s = 0.88; } else { y = 1.6; s = 0.7; } }
-  else if (page === 'teacher') { x = asp > 1.05 ? halfW * 0.62 : 0; y = 0.9; s = 0.9; }
-  else { y = 0.2; s = asp > 1 ? 0.85 : 0.95; }
+  let x = 0, y = 0.9, s = 0.88;
+  if (page === 'home') { if (asp > 1.05) { x = halfW * 0.44; y = 1.9; s = 0.8; } else { y = 2.6 + halfH * 0.18; s = asp < 0.6 ? 0.5 : 0.62; } }
+  else if (page === 'teacher') { x = asp > 1.05 ? halfW * 0.6 : 0; s = 0.8; }
+  else { s = asp > 1 ? 0.85 : 1.0; y = 1.0; }
   root.position.set(x, y, 0); root.scale.setScalar(s);
   camera.position.set(0, 1.6, dist); camera.lookAt(0, 0.6, 0);
 }
@@ -257,20 +254,26 @@ function frame(now) {
   if (!running) return;
   requestAnimationFrame(frame);
   if (document.hidden) return;
-  // a calm frame rate: smooth on a laptop, easy on an iPad battery
-  const cap = level < 0.5 ? 1000 / 20 : 1000 / 45;
+  const cap = level < 0.5 ? 1000 / 24 : 1000 / 50;
   if (now - lastFrame < cap) return;
-  lastFrame = now;
-  const t = (now - clockStart) / 1000;
+  const dt = Math.min(0.1, (now - (lastFrame || now)) / 1000); lastFrame = now;
+  const t = (now - t0) / 1000;
   level += (target - level) * 0.06;
-  const half = helix.userData.half;
-  const scan = ((t * 0.55) % 2.4 - 1.2) * half;           // a scan line sweeps up the molecule
+  phaseT += dt;
+  if (phase === 'morph') {
+    const m = Math.min(1, phaseT / MORPH);
+    points.material.uniforms.uMix.value = m;
+    if (m >= 1) finishMorph();
+  } else if (specs.length > 1 && phaseT > HOLD) setShow((cur + 1) % specs.length);
+  const l = lineObjs[cur];
+  if (l && phase === 'hold') l.material.uniforms.uShow.value = Math.min(1, phaseT / 1.2);
+  const scan = ((t * 0.5) % 2.4 - 1.2) * 4.2;
   for (const m of mats) { m.uniforms.uTime.value = t; m.uniforms.uLevel.value = level; if (m.uniforms.uScan) m.uniforms.uScan.value = scan; }
-  helix.rotation.y = t * 0.16;
+  spin.rotation.y = t * 0.18;
   mouse.sx += (mouse.x - mouse.sx) * 0.04; mouse.sy += (mouse.y - mouse.sy) * 0.04;
-  root.rotation.y = mouse.sx * 0.18; root.rotation.x = mouse.sy * 0.05;
+  root.rotation.y = mouse.sx * 0.2; root.rotation.x = mouse.sy * 0.05;
   renderer.render(scene, camera);
-  placeLabels(t);
+  placeCaption();
 }
 
 function start(opts) {
@@ -278,27 +281,31 @@ function start(opts) {
   setLevel(opts && opts.level != null ? opts.level : 1); level = target;
   const cv = document.createElement('canvas'); cv.className = 'biobg holobg'; cv.setAttribute('aria-hidden', 'true');
   document.body.prepend(cv);
-  try {
-    renderer = new WebGLRenderer({ canvas: cv, antialias: true, alpha: false, powerPreference: page === 'student' ? 'low-power' : 'high-performance' });
-  } catch (e) { cv.remove(); renderer = null; return; }        // no WebGL: the CSS background stays
+  try { renderer = new WebGLRenderer({ canvas: cv, antialias: true, alpha: false, powerPreference: page === 'student' ? 'low-power' : 'high-performance' }); }
+  catch (e) { cv.remove(); renderer = null; return; }
   const ipad = /iPad|iPhone|Android/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, ipad ? 1.25 : 1.5));
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, ipad ? 1.5 : 2));
   renderer.setClearColor(0x01040a, 1);
   scene = new Scene();
   camera = new PerspectiveCamera(32, 1, 0.1, 200);
   root = new Group(); scene.add(root);
-  helix = buildHelix(); root.add(helix);
-  root.add(buildTable(helix.userData.half));
+  spin = new Group(); root.add(spin);
+  specs = loadSpecimens();
+  spin.add(buildParticles());
+  lineObjs = specs.map(s => { const l = buildLines(s); if (l) { l.visible = false; spin.add(l); } return l; });
+  root.add(buildTable());
   for (const m of mats) if (m.uniforms.uPx) m.uniforms.uPx.value = renderer.getPixelRatio();
-  if (page === 'home') labels = buildLabels();
+  caption = buildCaption();
+  // each page opens on a different specimen, building itself out of a cloud
+  const first = { home: 0, teacher: 1, student: 2 }[page] || 0;
+  cur = first; setShow(first, true);
   layout();
   addEventListener('resize', layout);
   addEventListener('pointermove', e => { mouse.x = e.clientX / innerWidth * 2 - 1; mouse.y = e.clientY / innerHeight * 2 - 1; }, { passive: true });
-  clockStart = performance.now(); running = true;
+  t0 = performance.now(); running = true;
   requestAnimationFrame(frame);
-  window.__holo = { renderer, scene, atoms: DNA.n };
+  window.__holo = { renderer, specimens: specs.map(s => s.key), get current() { return specs[cur].key; }, get phase() { return phase; }, show: i => { fill('A', specs[cur]); setShow(i); } };
 }
-const DIM = page === 'student' ? 0.5 : page === 'teacher' ? 0.7 : 1;
 function setLevel(l) { target = Math.max(0, Math.min(1, Number(l) || 0)) * DIM; }
 
 window.BioBG = { start, setLevel };

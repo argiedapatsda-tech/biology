@@ -15,7 +15,7 @@ window.Printer = (function () {
   const CSS = `
     @page { size: A4; margin: 15mm 14mm 16mm; }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: "Sarabun", "Leelawadee UI", "Tahoma", sans-serif; font-size: 11.5pt; line-height: 1.5; color: #111; background: #fff; }
+    body { margin: 0; font-family: "Times New Roman", Times, "Sarabun", "Leelawadee UI", serif; font-size: 11.5pt; line-height: 1.5; color: #111; background: #fff; }
     .sheet { break-after: page; }
     .sheet:last-child { break-after: auto; }
     .hd { display: grid; grid-template-columns: 1fr auto; gap: 10px 18px; align-items: start; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 10px; }

@@ -7,7 +7,15 @@ window.Maker = (function () {
   const { $, $$, esc, asArray, icon } = EL;
   const KEY = 'el-gemini-key', MODEL = 'el-gemini-model';
   const store = { get: k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }, set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} } };
-  const MK = { src: null, hooks: null };
+  const MK = { src: null, hooks: null, files: null };
+  // what is happening, step by step, kept on screen (a toast alone is too easy to miss)
+  function status(steps, err) {
+    const box = $('#mkStatus'); if (!box) return;
+    box.classList.remove('hidden');
+    box.className = 'mk-status' + (err ? ' bad' : '');
+    box.innerHTML = steps.map(s => `<div class="mk-step ${s[1]}"><i></i><span>${s[0]}</span></div>`).join('') +
+      (err ? `<div class="mk-err"><b>What went wrong</b><span>${esc(err)}</span></div>` : '');
+  }
   const DEF = { mc: 10, tf: 5, match: 1, fill: 5, short: 3, essay: 1 };
   const LBL = { mc: 'Multiple choice', tf: 'True / false', match: 'Matching (sets of pairs)', fill: 'Fill in the blanks', short: 'Short answer', essay: 'Essay' };
 
@@ -27,7 +35,7 @@ window.Maker = (function () {
     if (files.length > 1) throw new Error('Upload one PDF or one Word file at a time (several photos are fine).');
     const f = files[0];
     if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') {
-      if (f.size > 18 * 1024 * 1024) throw new Error('This PDF is over 18 MB. Save just the pages you need as a new PDF and upload that.');
+      if (f.size > 80 * 1024 * 1024) throw new Error('This PDF is over 80 MB. Save just the pages you need as a new PDF and upload that.');
       progress('Opening the PDF…');
       await Importer.load(Importer.LIBS.pdf);
       pdfjsLib.GlobalWorkerOptions.workerSrc = Importer.LIBS.pdfWorker;
@@ -166,7 +174,9 @@ Reply with ONLY this JSON (no other text):
   }
   async function gemini(key, prompt, src) {
     const parts = [{ text: prompt }];
-    if (src.kind === 'pdf') parts.push({ inline_data: { mime_type: 'application/pdf', data: src.pdf } });
+    // Gemini takes up to ~20 MB per request: a big PDF goes as its page pictures instead
+    if (src.kind === 'pdf' && src.pdf.length * 0.75 < 14 * 1024 * 1024) parts.push({ inline_data: { mime_type: 'application/pdf', data: src.pdf } });
+    else if (src.kind === 'pdf') src.pages.forEach((d, i) => { parts.push({ text: 'Page ' + (i + 1) + ':' }, { inline_data: { mime_type: 'image/jpeg', data: d.split(',')[1] } }); });
     if (src.kind === 'images') src.pages.forEach((d, i) => { parts.push({ text: 'Photo ' + (i + 1) + ':' }, { inline_data: { mime_type: 'image/jpeg', data: d.split(',')[1] } }); });
     if (src.kind === 'docx') src.pics.forEach((d, i) => { parts.push({ text: 'Picture ' + (i + 1) + ':' }, { inline_data: { mime_type: 'image/jpeg', data: d.split(',')[1] } }); });
     const body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.4, maxOutputTokens: 32768 } });
@@ -229,7 +239,23 @@ Reply with ONLY this JSON (no other text):
     const thumbs = (s.pages.length ? s.pages : s.pics).slice(0, 12);
     $('#mkSrc').innerHTML = `<div><b>${esc(s.name)}</b><div class="small muted">${what}</div></div>${thumbs.length ? `<div class="mk-thumbs">${thumbs.map((src, i) => `<figure><img src="${src}" alt=""><figcaption>${i + 1}</figcaption></figure>`).join('')}</div>` : ''}`;
   }
-  function needSrc() { if (!MK.src) { EL.toast('Choose your paper first (step 1).', 'amber'); return false; } return true; }
+  function needSrc() { if (!MK.src) { status([['Choose your paper first (step 1)', 'todo']], 'No file has been chosen yet.'); EL.toast('Choose your paper first (step 1).', 'amber'); return false; } return true; }
+  async function load(files) {
+    files = Array.from(files || []); if (!files.length) return;
+    MK.files = files; $('#mkResult').classList.add('hidden');
+    status([['Reading ' + esc(files.length === 1 ? files[0].name : files.length + ' photos') + '…', 'run']]);
+    try {
+      MK.src = await readPaper(files, t => { MK.hooks.busy(t); });
+      renderSrc();
+      $('#mkAsIs').classList.remove('hidden');
+      const n = MK.src.pages.length || MK.src.pics.length;
+      status([['File read: ' + esc(MK.src.name) + (MK.src.kind === 'docx' ? '' : ` · ${n} page${n === 1 ? '' : 's'}`), 'ok'],
+        [store.get(KEY) ? 'Next: press <b>Make questions</b>' : 'Next: paste your free Gemini key below, then press <b>Make questions</b>, or use the Claude way', 'todo']]);
+    } catch (ex) {
+      console.error(ex); MK.src = null; renderSrc();
+      status([['Reading the file', 'bad']], ex.message || String(ex));
+    } finally { MK.hooks.busy(''); }
+  }
   function showResult(r, how) {
     MK.last = r;
     const by = {}; r.questions.forEach(q => { by[q.type] = (by[q.type] || 0) + 1; });
@@ -246,13 +272,11 @@ Reply with ONLY this JSON (no other text):
     MK.hooks = hooks;
     renderTypes(); renderKey();
     $('#mkTypes').addEventListener('input', total);
-    $('#mkFile').addEventListener('change', async e => {
+    $('#mkFile').addEventListener('change', e => {
       const files = Array.from(e.target.files || []); e.target.value = '';   // copy first: clearing the input empties its list
-      if (!files.length) return;
-      try { MK.src = await readPaper(files, t => hooks.busy(t)); renderSrc(); }
-      catch (ex) { console.error(ex); EL.toast('<b>Could not read that.</b><br><span class="muted">' + esc(ex.message || ex) + '</span>', 'red', 9000); }
-      finally { hooks.busy(''); }
+      load(files);
     });
+    $('#mkAsIs').addEventListener('click', () => { if (MK.files && MK.files[0]) hooks.asIs(MK.files[0]); });
     $('#mkKeyBox').addEventListener('click', e => {
       if (e.target.closest('#mkKeyChange')) { store.set(KEY, ''); store.set(MODEL, ''); renderKey(); setTimeout(() => $('#mkKey') && $('#mkKey').focus(), 30); }
       if (e.target.closest('#mkKeySave')) {
@@ -265,10 +289,22 @@ Reply with ONLY this JSON (no other text):
       if (!needSrc()) return;
       let key = store.get(KEY);
       if (!key && $('#mkKey') && $('#mkKey').value.trim().length >= 20) { key = $('#mkKey').value.trim(); store.set(KEY, key); renderKey(); }
-      if (!key) { EL.toast('Paste your free Gemini key first (or use the Claude way).', 'amber'); return; }
+      const read = ['File read: ' + esc(MK.src.name), 'ok'];
+      if (!key) {
+        status([read, ['Gemini key missing', 'bad']], 'Gemini needs your free key first. Open aistudio.google.com/apikey, press Create API key, copy it and paste it in the box below. Or use the Claude way underneath.');
+        const k = $('#mkKey'); if (k) { k.focus(); k.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+        return;
+      }
+      status([read, ['Sending to Gemini and writing questions… (30–90 seconds)', 'run']]);
       hooks.busy('Gemini is reading the paper and writing questions… (about 30–90 seconds)');
-      try { const r = await toQuestions(await gemini(key, buildPrompt(false), MK.src)); showResult(r, 'Gemini'); }
-      catch (ex) { console.error(ex); EL.toast('<b>Gemini could not make the questions.</b><br><span class="muted">' + esc(ex.message || ex) + '</span>', 'red', 12000); }
+      let reply;
+      try { reply = await gemini(key, buildPrompt(false), MK.src); }
+      catch (ex) { console.error(ex); hooks.busy(''); status([read, ['Gemini', 'bad']], ex.message || String(ex)); return; }
+      try {
+        const r = await toQuestions(reply);
+        status([read, ['Gemini replied', 'ok'], [`${r.questions.length} questions made · check them, then open them below`, 'ok']]);
+        showResult(r, 'Gemini');
+      } catch (ex) { console.error(ex, reply); status([read, ['Gemini replied', 'ok'], ['Reading the reply', 'bad']], (ex.message || String(ex)) + ' Press Make questions again.'); }
       finally { hooks.busy(''); }
     });
     $('#mkCopy').addEventListener('click', () => {
@@ -285,8 +321,8 @@ Reply with ONLY this JSON (no other text):
       const t = $('#mkPaste').value.trim();
       if (!t) return EL.toast("Paste Claude's reply into the box first.", 'amber');
       hooks.busy('Reading the reply…');
-      try { const r = await toQuestions(t); showResult(r, 'Claude'); }
-      catch (ex) { EL.toast('<b>That reply could not be used.</b><br><span class="muted">' + esc(ex.message || ex) + '</span>', 'red', 10000); }
+      try { const r = await toQuestions(t); status([[`Claude's reply read · ${r.questions.length} questions made`, 'ok']]); showResult(r, 'Claude'); }
+      catch (ex) { status([["Reading Claude's reply", 'bad']], ex.message || String(ex)); }
       finally { hooks.busy(''); }
     });
     $('#mkResult').addEventListener('click', e => {
@@ -340,7 +376,7 @@ Reply with ONLY this JSON (no other text):
   }
 
   return {
-    init, pickPicture, buildPrompt, toQuestions, readPaper, crop,
+    init, load, pickPicture, buildPrompt, toQuestions, readPaper, crop,
     hasPages: () => !!(MK.src && MK.src.pages.length),
     _set: src => { MK.src = src; renderSrc(); }
   };

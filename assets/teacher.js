@@ -67,7 +67,7 @@
     S.uid = B.uid();
     $('#auth').classList.add('hidden');
     $('#app').classList.remove('hidden');
-    BioBG.setLevel(.4);   // behind the dashboard the hologram is only a quiet backdrop
+    BioBG.setLevel(.8);
     const mp = $('#modePill');
     mp.className = 'modepill ' + (B.mode === 'demo' ? 'demo' : 'online');
     mp.title = B.mode === 'demo' ? 'Demo: this browser only' : 'Online: iPads can join';
@@ -1125,9 +1125,16 @@
   });
 
   // ---------------- upload a file (PDF / Word / photo)
+  // Upload on the Tests page = make questions from it with AI (the Make from paper page, file already loaded)
   $('#uploadInput').addEventListener('change', async e => {
-    const file = e.target.files[0]; e.target.value = ''; if (!file) return;
-    if (S.dirty && S.editing && !(await confirmBox('Discard unsaved changes?', 'Uploading makes a new test from the file.', 'Continue', true))) return;
+    const files = Array.from(e.target.files || []); e.target.value = ''; if (!files.length) return;
+    go('make');
+    Maker.load(files);
+  });
+  // "Use my paper as it is" (no AI): typed questions are picked out of the file, else students see the file + answer rows
+  async function useAsIs(file) {
+    if (!file) return;
+    if (S.dirty && S.editing && !(await confirmBox('Discard unsaved changes?', 'This makes a new test from the file.', 'Continue', true))) return;
     busy('Reading ' + file.name + '…');
     let r;
     try { r = await Importer.read(file, msg => busy(msg)); }
@@ -1149,7 +1156,7 @@
       openEditor(t); S.dirty = true; infoLine();
       if (s) EL.toast('<b>Answer sheet added.</b><br><span class="muted">Tick the correct answer for each number, then Save.</span>', 'green', 8000);
     }
-  });
+  }
 
   function validate(t) {
     if (!t.title.trim()) return 'Give the test a title.';
@@ -1403,7 +1410,7 @@
 
   // ================================================================ make from paper (AI)
   Maker.init({
-    busy,
+    busy, asIs: useAsIs,
     editing: () => S.editing && !$('#edMain').classList.contains('hidden') ? S.editing : null,
     use: async (qs, title, mode) => {
       const make = q => Object.assign(newQ(q.type), q, { id: 'q' + EL.rid(6) });

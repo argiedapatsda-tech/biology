@@ -27,11 +27,11 @@
   --cyan-soft: rgba(165, 240, 255, .14);
   --amber: #ffb648;
   --amber-soft: rgba(255, 182, 72, .15);
-  --ui: "Chakra Petch", "IBM Plex Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --read: "IBM Plex Sans Thai", "Chakra Petch", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  --ui: "Times New Roman", Times, "IBM Plex Sans Thai", "Leelawadee UI", serif;
+  --read: "Times New Roman", Times, "IBM Plex Sans Thai", "Leelawadee UI", serif;
+  --mono: "Times New Roman", Times, "IBM Plex Sans Thai", serif;
   --ease: cubic-bezier(.2, .8, .2, 1);
-  --blur: blur(14px) saturate(150%);
+  --blur: blur(5px) saturate(140%);
   --muted: var(--dim); --faint: var(--dim-2); --accent: var(--gfp);
   color-scheme: dark;
 }
@@ -1200,3 +1200,44 @@ textarea.input, .short, .mk-paste { font-family: var(--read); }
 .proj-codebox { padding: 14px 22px 10px; }
 .proj-code { font-family: var(--ui); font-weight: 700; }
 .set-qt .kind, .ss-row b, .pc-table th { font-family: var(--ui); }
+
+/* Times New Roman everywhere (2026-10-15, user request); Thai falls back to IBM Plex Sans Thai */
+body, button, input, textarea, select { font-family: var(--ui); }
+body { font-size: 16px; }
+.label, .field > span, .pill, .modepill, .stat span, .codechip span, .q-type, .q-pts, .lh-row, .s-sub, .tcard span, .ff-top, .holo-lab span { font-variant-numeric: tabular-nums; letter-spacing: .08em; }
+.lh-clock, .timer, .codechip b, .proj-code, .s-prog, .ms .ms-num { font-variant-numeric: tabular-nums lining-nums; }
+
+/* make-from-paper: step by step status that stays on screen */
+.mk-status { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line-2); background: rgba(3, 12, 24, .7); }
+.mk-status.bad { border-color: rgba(255, 77, 97, .6); }
+.mk-step { display: flex; align-items: center; gap: 10px; font-size: 14.5px; color: var(--text-2); }
+.mk-step i { width: 10px; height: 10px; flex: none; transform: rotate(45deg); border: 1.5px solid var(--dim); }
+.mk-step.ok { color: var(--text); } .mk-step.ok i { background: var(--gfp); border-color: var(--gfp); }
+.mk-step.run i { border-color: var(--gfp); animation: blink 0.8s steps(2, start) infinite; }
+.mk-step.bad { color: #ff8793; } .mk-step.bad i { background: var(--actin); border-color: var(--actin); }
+.mk-step.todo i { border-color: var(--amber); }
+.mk-err { display: grid; gap: 2px; margin-top: 4px; padding: 10px 12px; background: var(--actin-soft); border-left: 3px solid var(--actin); font-size: 14.5px; }
+.mk-err b { color: #ffd0d5; }
+
+/* specimen caption under the holo-table */
+.holo-cap { position: fixed; right: clamp(16px, 4vw, 48px); bottom: 22px; z-index: 0; width: 340px; padding: 10px 14px 12px; pointer-events: none; display: grid; gap: 2px;
+  background: rgba(2, 10, 20, .55); border-top: 1px solid rgba(120, 210, 255, .45); text-align: center; transition: opacity .4s; }
+.holo-cap .hc-top { display: flex; justify-content: space-between; gap: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; letter-spacing: .14em; color: #6fb6dc; text-transform: uppercase; }
+.holo-cap .hc-name { font-size: 22px; letter-spacing: .06em; text-transform: uppercase; color: #e8f6ff; }
+.holo-cap .hc-th { font-size: 15px; color: #a5f0ff; }
+.holo-cap .hc-note { margin: 2px 0 0; font-size: 13.5px; line-height: 1.4; color: #aac3d6; }
+.holo-cap .hc-dots { display: flex; justify-content: center; gap: 6px; margin-top: 6px; }
+.holo-cap .hc-dots i { width: 6px; height: 6px; transform: rotate(45deg); border: 1px solid rgba(120, 210, 255, .6); }
+.holo-cap .hc-dots i.on { background: var(--gfp); border-color: var(--gfp); }
+.holo-cap.in .hc-name, .holo-cap.in .hc-th, .holo-cap.in .hc-note { animation: capIn .7s var(--ease); }
+@keyframes capIn { from { opacity: 0; transform: translateY(6px); } }
+body[data-holo=teacher] .app:not(.hidden) ~ .holo-cap, body.s-test .holo-cap, body.s-present .holo-cap, body.locked .holo-cap { display: none; }
+.holo-cap .hc-src { overflow: hidden; text-overflow: ellipsis; }
+body[data-holo=student] .holo-cap { right: auto; left: 50%; margin-left: -170px; bottom: 14px; }
+@media (max-width: 760px) { .holo-cap { display: none; } }
+/* cards in front of the hologram are solid, so text stays sharp and nothing shows blurred through them */
+.s-card, .auth-card, .modal-box, .door, .panel, .qcard, .submit-zone, .stat, .srow, .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; }
+.s-card, .auth-card, .door { background-color: rgba(4, 12, 22, .9); }
+.panel, .stat, .srow, .tcard { background-color: rgba(4, 12, 22, .84); }
+.qcard, .submit-zone { background-color: rgba(4, 12, 22, .9); }
+.home-foot { text-align: left; }
