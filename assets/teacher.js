@@ -659,10 +659,10 @@
     if (st === 'offline') h = `${first}'s iPad is offline.`;
     else if (st === 'kicked') h = 'Removed from the test.';
     else if (S.meta && S.meta.status === 'ended') h = 'The test has ended. Cameras are off.';
-    else if (s.cam === 'denied') h = `<b>${first} blocked the camera.</b><br>Their screen shows a "Turn on camera" button. Ask them to tap it and choose Allow.`;
+    else if (s.cam === 'denied') h = `<b>${first} blocked the camera</b> (tapped Don't Allow).<br>Before the test starts, their iPad asks again when they tap the waiting screen.`;
     else if (s.cam === 'none') h = `${first}'s device can't start a camera (no camera, or another app is using it).`;
     else if (s.cam === 'off') h = `${first}'s camera is off right now. It turns back on when they return to the page.`;
-    else if (!s.cam) h = `${first}'s iPad hasn't turned the camera on yet. It asks when they join the waiting room. Older link? Ask them to reload.`;
+    else if (!s.cam) h = `${first}'s iPad hasn't turned the camera on yet. It asks when they join the waiting room.`;
     else if (CAM.state === 'failed' || CAM.state === 'disconnected') h = `Can't reach ${first}'s camera. Press Reconnect. If it never works, the school Wi-Fi may block direct connections.`;
     else if (!live) h = `Opening ${first}'s camera…`;
     camMsg(h);

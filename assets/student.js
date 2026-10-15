@@ -566,23 +566,8 @@
   // the teacher offers (control/<sid>/cam), this iPad answers (students/<sid>/camAns). Nothing is recorded.
   let camStream = null, camPc = null, camOfferId = null, camAsking = false, camState = '';
   const camWanted = () => !isPres() && code && !closed && (stage === 'wait' || stage === 'count' || stage === 'test' || stage === 'done');
-  function camPaint() {
-    const row = $('#camRow'); if (!row) return;
-    const on = camState === 'on';
-    row.classList.toggle('warn', camState === 'denied' || camState === 'none');
-    $('#camTxt').textContent = on ? 'is on. Your teacher may look at it at any time during the test. Nothing is recorded.'
-      : camState === 'denied' ? 'is blocked. Tap the button, then choose Allow. Your teacher can see that it is off.'
-      : camState === 'none' ? "can't start on this device. Tell your teacher." : 'is turning on…';
-    $('#camTh').textContent = on ? 'กล้องเปิดอยู่ ครูอาจดูภาพสดได้ทุกเมื่อระหว่างสอบ ไม่มีการบันทึกวิดีโอ'
-      : camState === 'denied' ? 'กล้องถูกปิดกั้น แตะปุ่มแล้วเลือก "อนุญาต" ครูจะเห็นว่ากล้องปิดอยู่'
-      : camState === 'none' ? 'เปิดกล้องบนอุปกรณ์นี้ไม่ได้ กรุณาแจ้งครู' : 'กำลังเปิดกล้อง…';
-    $('#camBtn').classList.toggle('hidden', on || !camState || camAsking);
-    $('#camSelf').classList.toggle('hidden', !on);
-    const t = $('#tCam');
-    t.classList.toggle('hidden', !camState);
-    t.classList.toggle('warn', !on);
-    t.innerHTML = EL.icon('cam') + (on ? 'Camera on · your teacher may look at any time · กล้องเปิดอยู่' : 'Camera off · your teacher can see this · กล้องปิดอยู่');
-  }
+  // nothing about the camera is shown to the student (the teacher's choice); retries are silent
+  function camPaint() {}
   function setCam(st) {
     if (camState === st) return;
     camState = st; camPaint();
@@ -599,7 +584,6 @@
       if (!camWanted()) { s.getTracks().forEach(t => t.stop()); return; }
       camStream = s;
       s.getVideoTracks().forEach(t => t.addEventListener('ended', () => { if (camStream === s) { camStream = null; setCam('off'); setTimeout(camOn, 1500); } }));
-      const v = $('#camSelf'); v.srcObject = s; v.play().catch(() => {});
       camState = ''; setCam('on');
       onCamOffer(control.cam, true);   // the teacher may already be waiting
     } catch (e) {
@@ -607,16 +591,16 @@
       setCam(e && (e.name === 'NotAllowedError' || e.name === 'SecurityError') ? 'denied' : 'none');
     } finally { camAsking = false; camPaint(); }
   }
-  $('#camBtn').addEventListener('click', camOn);
+  // blocked in the waiting room: ask again on the next tap there (a tap lets the iPad show its question again)
+  document.addEventListener('pointerdown', () => { if (stage === 'wait' && (camState === 'denied' || camState === 'off')) camOn(); }, true);
   function camClose() {
     if (camPc) { try { camPc.close(); } catch (e) {} camPc = null; }
   }
   function camStop() {
     camClose();
     if (camStream) camStream.getTracks().forEach(t => t.stop());
-    camStream = null; $('#camSelf').srcObject = null;
+    camStream = null;
     if (camState) { camState = 'off'; camPaint(); if (code && uid) B.update(P(), { cam: 'off', camReady: null }).catch(() => {}); }
-    $('#tCam').classList.add('hidden');
   }
   async function onCamOffer(o, again) {
     if (!o || !o.offer) { camOfferId = null; return camClose(); }
