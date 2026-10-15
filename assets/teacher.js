@@ -55,7 +55,7 @@
     try { await B.signInEmail($('#aEmail').value.trim(), $('#aPass').value); enterApp(); }
     catch (ex) { $('#aErr').textContent = authMsg(ex); }
   });
-  $('#aCreate').addEventListener('click', async () => {
+  if ($('#aCreate')) $('#aCreate').addEventListener('click', async () => {
     sfx.unlock();
     try { await B.createEmail($('#aEmail').value.trim(), $('#aPass').value); enterApp(); }
     catch (ex) { $('#aErr').textContent = authMsg(ex); }
@@ -1936,6 +1936,35 @@
     }
   }
 }`;
+  // Rules that let ONLY this teacher account make tests and run classes (students still join with a code)
+  const ownerRules = uid => `{
+  "rules": {
+    "teachers": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid && auth.uid === '${uid}'",
+        ".write": "auth != null && auth.uid === $uid && auth.uid === '${uid}'"
+      }
+    },
+    "sessions": {
+      "$code": {
+        ".read": "auth != null && root.child('sessions/' + $code + '/meta/owner').val() === auth.uid",
+        ".write": "auth != null && auth.uid === '${uid}' && (root.child('sessions/' + $code + '/meta/owner').val() === auth.uid || (!root.child('sessions/' + $code + '/meta').exists() && newData.child('meta/owner').val() === auth.uid))",
+        "meta": { ".read": "auth != null" },
+        "questions": { ".read": "auth != null" },
+        "students": {
+          "$sid": {
+            ".read": "auth != null && auth.uid === $sid",
+            ".write": "auth != null && auth.uid === $sid",
+            ".validate": "!data.exists() || newData.child('lockSeq').val() >= data.child('lockSeq').val()"
+          }
+        },
+        "control": { "$sid": { ".read": "auth != null && auth.uid === $sid" } },
+        "results": { "$sid": { ".read": "auth != null && auth.uid === $sid" } },
+        "events": { "$eid": { ".write": "auth != null && !data.exists() && newData.child('sid').val() === auth.uid" } }
+      }
+    }
+  }
+}`;
   function renderSetup() {
     const online = B.mode !== 'demo';
     $('#setupBody').innerHTML = `
@@ -1946,9 +1975,19 @@
       <div class="card warn"><p style="margin-top:0">A website can't stop an iPad from going to the home screen. This site <b>notices</b> right away, alerts you and locks the test until you unlock it. To <b>block</b> leaving completely, add one of these:</p>
       <p><b>Guided Access (built into every iPad, free).</b> Settings → Accessibility → Guided Access → On. The student opens the test in Safari, triple-clicks the top button, and you type your passcode to start. They can't leave Safari until you end it.</p>
       <p style="margin-bottom:0"><b>Safe Exam Browser (free App Store app).</b> Full exam lockdown. It only exits with your password.</p></div>
-      <h3>Firebase security rules</h3>
-      <div class="copyrow"><span class="small muted">Already set up. Kept here in case you ever need to paste them again.</span><button class="btn sm" data-copy="rulesPre">Copy</button></div>
-      <pre id="rulesPre">${esc(RULES)}</pre>`;
+      <h3>Only you · private website</h3>
+      <div class="card"><p style="margin-top:0">These rules let <b>only your account</b> make tests and run classes. Nobody else can, even if they find the website. Students still join your tests with a code.</p>
+      <ol class="pr-steps">
+        <li>Press <b>Copy</b> below.</li>
+        <li>Open <a href="https://console.firebase.google.com/project/examlock-6f9d3/database/examlock-6f9d3-default-rtdb/rules" target="_blank" rel="noopener">Firebase → Realtime Database → Rules</a> and sign in with the Google account you used to set up Firebase.</li>
+        <li>Click inside the rules box, press <b>Ctrl + A</b>, then <b>Ctrl + V</b> to replace everything.</li>
+        <li>Press <b>Publish</b>.</li>
+      </ol>
+      <div class="copyrow" style="margin-top:10px"><span class="small muted">Your account id: <code>${esc(S.uid || '')}</code></span><button class="btn sm primary" data-copy="ownerRulesPre">Copy</button></div>
+      <pre id="ownerRulesPre">${esc(ownerRules(S.uid || ''))}</pre></div>
+      <details style="margin-top:14px"><summary class="small muted">Older open rules (any teacher account)</summary>
+      <div class="copyrow"><span class="small muted">Only for reference.</span><button class="btn sm" data-copy="rulesPre">Copy</button></div>
+      <pre id="rulesPre">${esc(RULES)}</pre></details>`;
   }
   $('#setupBody').addEventListener('click', e => {
     const b = e.target.closest('[data-copy]'); if (!b) return;
