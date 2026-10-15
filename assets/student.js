@@ -123,14 +123,13 @@
       event('join');
     }
     B.onConnected(on => { if (on) { B.onDisconnectUpdate(P(), { online: false }); B.update(P(), { online: true }); } });
-    B.on(`sessions/${code}/control/${uid}`, c => { control = c || {}; if (control.kicked) return removed(); evalLock(); onCamOffer(control.cam); });
+    B.on(`sessions/${code}/control/${uid}`, c => { control = c || {}; if (control.kicked) return removed(); evalLock(); });
     B.on(`sessions/${code}/results/${uid}`, r => showResult(r));
     B.on(`sessions/${code}/meta`, m => onMeta(m));
     B.on(P() + '/chat', c => onChat(c || {}));
-    if (submitted) { finish(); return camOn(); }
+    if (submitted) return finish();
     paintWait();
     show('wait');
-    camOn();
   }
 
   function paintWait() {
@@ -243,7 +242,6 @@
       return;
     }
     if (!watched() || away) return;
-    if (camAsking && !document.hidden) return;   // the "Allow camera?" question takes focus; that isn't leaving
     away = true; awayStart = Date.now();
     lockSeq++; leaves++;
     evalLock();                      // lock locally first; the network may be frozen while away
@@ -251,7 +249,6 @@
     event('left', { reason, net: netAtLeave() });
   }
   function comeBack() {
-    if (camWanted() && !(camStream && camStream.getVideoTracks().some(t => t.readyState === 'live'))) setTimeout(camOn, 300);
     if (afterAway) { afterAway = false; B.update(P(), { awayAfter: false }); event('backafter'); return; }
     if (!away) return;
     away = false;
@@ -369,7 +366,6 @@
     shutGames(true);
     if (closed) return;
     closed = true;
-    camStop();
     $('#doneTitle').textContent = 'Test closed';
     $('#doneLead').innerHTML = 'Your teacher has closed the test. You can close this page now.<span class="th">ครูปิดการสอบแล้ว ปิดหน้านี้ได้เลย</span>';
     $('#stayNote').classList.add('hidden');
@@ -386,7 +382,7 @@
     }
   }
   function removed() {
-    clearInterval(timerInt); submitted = true; closed = true; camStop();
+    clearInterval(timerInt); submitted = true;
     $('#lock').classList.add('hidden'); document.body.classList.remove('locked');
     $('#msgTitle').textContent = 'Removed from the test';
     $('#msgBody').textContent = 'Your teacher removed you from this test. · ครูได้นำคุณออกจากการสอบนี้';
@@ -559,72 +555,6 @@
     if (stage !== 'present') return;
     const v = $('#pVid'); if (v.srcObject && v.paused) v.play().catch(() => {});
   });
-
-  // ---------------------------------------------------------------- camera: the teacher can open it at any time
-  // The camera is turned on once, in the waiting room (that is when the iPad asks "Allow camera?"), and kept
-  // for the whole test, so the question never pops up mid-test. Nothing is sent until the teacher opens it:
-  // the teacher offers (control/<sid>/cam), this iPad answers (students/<sid>/camAns). Nothing is recorded.
-  let camStream = null, camPc = null, camOfferId = null, camAsking = false, camState = '';
-  const camWanted = () => !isPres() && code && !closed && (stage === 'wait' || stage === 'count' || stage === 'test' || stage === 'done');
-  // nothing about the camera is shown to the student (the teacher's choice); retries are silent
-  function camPaint() {}
-  function setCam(st) {
-    if (camState === st) return;
-    camState = st; camPaint();
-    if (code && uid) B.update(P(), { cam: st, camReady: st === 'on' ? B.now() : null }).catch(e => console.error(e));
-  }
-  async function camOn() {
-    if (!camWanted() || camAsking) return;
-    const live = camStream && camStream.getVideoTracks().some(t => t.readyState === 'live');
-    if (live) return setCam('on');
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return setCam('none');
-    camAsking = true; camPaint();
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15, max: 15 } } });
-      if (!camWanted()) { s.getTracks().forEach(t => t.stop()); return; }
-      camStream = s;
-      s.getVideoTracks().forEach(t => t.addEventListener('ended', () => { if (camStream === s) { camStream = null; setCam('off'); setTimeout(camOn, 1500); } }));
-      camState = ''; setCam('on');
-      onCamOffer(control.cam, true);   // the teacher may already be waiting
-    } catch (e) {
-      console.warn('[cam]', e);
-      setCam(e && (e.name === 'NotAllowedError' || e.name === 'SecurityError') ? 'denied' : 'none');
-    } finally { camAsking = false; camPaint(); }
-  }
-  // blocked in the waiting room: ask again on the next tap there (a tap lets the iPad show its question again)
-  document.addEventListener('pointerdown', () => { if (stage === 'wait' && (camState === 'denied' || camState === 'off')) camOn(); }, true);
-  function camClose() {
-    if (camPc) { try { camPc.close(); } catch (e) {} camPc = null; }
-  }
-  function camStop() {
-    camClose();
-    if (camStream) camStream.getTracks().forEach(t => t.stop());
-    camStream = null;
-    if (camState) { camState = 'off'; camPaint(); if (code && uid) B.update(P(), { cam: 'off', camReady: null }).catch(() => {}); }
-  }
-  async function onCamOffer(o, again) {
-    if (!o || !o.offer) { camOfferId = null; return camClose(); }
-    if (!camStream || (o.id === camOfferId && !again)) return;
-    if (o.id === camOfferId && camPc && camPc.connectionState !== 'failed') return;
-    camOfferId = o.id;
-    camClose();
-    const pc = camPc = new RTCPeerConnection({ iceServers: ICE });
-    try {
-      await pc.setRemoteDescription({ type: 'offer', sdp: o.offer });
-      const tx = pc.getTransceivers()[0], tr = camStream.getVideoTracks()[0];
-      if (tx) { tx.direction = 'sendonly'; await tx.sender.replaceTrack(tr); tx.sender.setStreams && tx.sender.setStreams(camStream); }
-      else pc.addTrack(tr, camStream);
-      await pc.setLocalDescription(await pc.createAnswer());
-      try {
-        const sd = (tx || pc.getSenders()[0]).sender || pc.getSenders()[0], prm = sd.getParameters();
-        if (prm.encodings && prm.encodings.length) { prm.encodings[0].maxBitrate = 600e3; prm.encodings[0].maxFramerate = 15; await sd.setParameters(prm); }
-      } catch (e) {}
-      await gathered(pc, 2500);
-      if (pc !== camPc) return;
-      await B.update(P(), { camAns: { id: o.id, sdp: pc.localDescription.sdp } });
-    } catch (e) { console.error('[cam]', e); }
-  }
-  window.__cam = () => ({ state: camState, pc: camPc, stream: camStream });   // for testing
 
   boot();
 })();
