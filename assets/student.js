@@ -5,6 +5,9 @@
   const params = new URLSearchParams(location.search);
 
   let code = null, uid = null, name = '', meta = null, questions = [], paper = null, order = [], answers = {}, control = {};
+  // a test made in sets: the whole pool arrives, and this student answers only their own set
+  let pool = [], mySet = null;
+  const metaSets = () => meta && meta.sets ? EL.asArray(meta.sets) : null;
   let stage = 'join', lockSeq = 0, leaves = 0, awayMs = 0, away = false, awayStart = 0, submitted = false, wasLocked = false;
   let timerInt = null, lastResult = null, closed = false, afterAway = false, afterLeaves = 0, gamesOn = false, gamesShut = false, overInt = null;
   const isPres = () => !!(meta && meta.kind === 'present');
@@ -105,9 +108,11 @@
     if (isPres()) return enterPresent();
     const existing = await B.get(P());
     const split = EL.splitPaper(await B.get(`sessions/${code}/questions`));
-    questions = split.questions; paper = split.paper;
+    pool = questions = split.questions; paper = split.paper;
     const ids = questions.map(q => q.id);
     order = meta.shuffle ? EL.seededOrder(ids, uid) : ids;
+    // a reload keeps the set this student already has
+    if (existing && existing.set != null && metaSets()) { mySet = Number(existing.set); useSet(); }
     const device = EL.detectBrowser();
     if (existing) {
       answers = existing.answers || {}; lockSeq = existing.lockSeq || 0; leaves = existing.leaves || 0; awayMs = existing.awayMs || 0;
@@ -132,13 +137,30 @@
     show('wait');
   }
 
+  // the set: the one already started with, else the one the teacher gave (shared out evenly), else a fair pick
+  function pickSet() {
+    const sets = metaSets(); if (!sets) return null;
+    if (mySet != null && sets[mySet]) return mySet;
+    if (control.set != null && sets[control.set]) return Number(control.set);
+    let h = 0; for (const c of String(uid)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return h % sets.length;
+  }
+  function useSet() {
+    const sets = metaSets(); if (!sets || mySet == null || !sets[mySet]) return;
+    const ids = EL.asArray(sets[mySet].ids).filter(id => pool.some(q => q.id === id));
+    const byId = {}; pool.forEach(q => { byId[q.id] = q; });
+    questions = ids.map(id => byId[id]);
+    order = meta.shuffle ? EL.seededOrder(ids, uid) : ids;
+  }
+  const qCount = () => { const sets = metaSets(); return sets && sets[0] ? EL.asArray(sets[mySet != null ? mySet : 0].ids).length : questions.length; };
+
   function paintWait() {
     $('#wName').textContent = name;
     $('#avatar').textContent = name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
     $('#wDevice').textContent = EL.detectBrowser() + ' · code ' + code;
     $('#wTitle').textContent = meta.title || 'Test';
     const tl = Number(meta.timeLimit) || 0;
-    $('#wMeta').textContent = questions.length + ' questions · ' + (tl ? tl + ' minutes' : 'no time limit');
+    $('#wMeta').textContent = qCount() + ' questions · ' + (tl ? tl + ' minutes' : 'no time limit');
   }
 
   let starting = false;
@@ -165,17 +187,19 @@
     BioBG.setLevel(.4);   // calmer while answering
     $('#tTitle').textContent = meta.title || 'Test';
     $('#tWho').textContent = name + ' · code ' + code;
+    if (metaSets() && (mySet == null || questions === pool)) { mySet = pickSet(); useSet(); }
+    $('#tSet').textContent = metaSets() && metaSets().length > 1 ? 'Set ' + EL.setLetter(mySet) : '';
     $('#qlist').innerHTML = EL.renderTest(questions, order, answers, { paper });
     // page pictures change the page height once they load: tell the teacher's copy
     document.querySelectorAll('#qlist img').forEach(img => img.addEventListener('load', () => sendView(), { once: true }));
     progress();
-    B.update(P(), { status: 'testing', startedAt: B.now() });
+    B.update(P(), Object.assign({ status: 'testing', startedAt: B.now() }, mySet != null ? { set: mySet, order } : {}));
     timerInt = setInterval(tickTimer, 500); tickTimer();
     evalLock();
     sendView();
   }
   function progress() {
-    const n = questions.filter(q => answers[q.id] != null && answers[q.id] !== '').length;
+    const n = questions.filter(q => EL.isAnswered(q, answers[q.id])).length;
     $('#progFill').style.transform = 'scaleX(' + (questions.length ? n / questions.length : 0) + ')';
     $('#progTxt').textContent = n + ' / ' + questions.length;
     $('#submitHint').textContent = n + ' of ' + questions.length + ' answered';
@@ -201,6 +225,24 @@
     answers[qid] = t.value;
     t.closest('.qcard').classList.toggle('answered', !!t.value.trim());
     clearTimeout(typeTimers[qid]); typeTimers[qid] = setTimeout(() => saveAnswer(qid), 250);
+  });
+  // fill in the blanks / matching: every box of one question is kept together as one answer
+  function multiAnswer(card, sel) {
+    const els = Array.from(card.querySelectorAll(sel)), qid = els[0].dataset.q;
+    answers[qid] = els.map(x => x.value.replace(new RegExp(EL.SEP, 'g'), '').trim()).join(EL.SEP);
+    if (!answers[qid].split(EL.SEP).some(Boolean)) answers[qid] = '';
+    card.classList.toggle('answered', !!answers[qid]);
+    return qid;
+  }
+  $('#qlist').addEventListener('input', e => {
+    const t = e.target.closest('.blank'); if (!t || submitted) return;
+    const qid = multiAnswer(t.closest('.qcard'), '.blank');
+    clearTimeout(typeTimers[qid]); typeTimers[qid] = setTimeout(() => saveAnswer(qid), 250);
+  });
+  $('#qlist').addEventListener('change', e => {
+    const t = e.target.closest('.mselect'); if (!t || submitted) return;
+    const qid = multiAnswer(t.closest('.qcard'), '.mselect');
+    sfx.select(); saveAnswer(qid); sendView(qid);
   });
   $('#qlist').addEventListener('focusin', e => { const c = e.target.closest('.qcard'); if (c) sendView(c.dataset.qid); });
 
@@ -314,7 +356,7 @@
 
   // ---------------------------------------------------------------- submit
   $('#submitBtn').addEventListener('click', () => {
-    const n = progress(), left = questions.length - n;
+    const n = progress(), left = questions.length - n;  // only this student's own set
     $('#cfBody').textContent = left ? `You answered ${n} of ${questions.length}. ${left} still empty. You can't change answers after submitting.`
       : `All ${questions.length} questions answered. You can't change answers after submitting.`;
     $('#confirm').classList.remove('hidden');

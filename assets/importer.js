@@ -200,5 +200,5 @@ window.Importer = (function () {
     return slides;
   }
 
-  return { read, parse, readSlides };
+  return { read, parse, readSlides, load, LIBS };
 })();

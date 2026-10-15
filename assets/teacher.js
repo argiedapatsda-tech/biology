@@ -82,7 +82,7 @@
   // ================================================================ navigation
   function go(v) {
     $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
-    ['live', 'tests', 'present', 'archive', 'setup'].forEach(x => $('#v-' + x).classList.toggle('hidden', x !== v));
+    ['live', 'tests', 'make', 'present', 'archive', 'setup'].forEach(x => $('#v-' + x).classList.toggle('hidden', x !== v));
   }
   $('#nav').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -116,7 +116,7 @@
     const pres = isPres(), leftN = ids.filter(id => (S.students[id].leaves || 0) > 0).length;
     const summary = pres
       ? { kind: 'present', mode: S.mode, title: S.meta.title || 'Lesson', createdAt: S.meta.createdAt || B.now(), endedAt: S.meta.endedAt || B.now(), n: S.slides.length, students: ids.length, left: leftN }
-      : { title: S.meta.title || 'Test', createdAt: S.meta.createdAt || B.now(), endedAt: S.meta.endedAt || B.now(), n: S.questions.length, students: ids.length, avg };
+      : { title: S.meta.title || 'Test', createdAt: S.meta.createdAt || B.now(), endedAt: S.meta.endedAt || B.now(), n: metaSets(S.meta) ? EL.asArray(metaSets(S.meta)[0].ids).length : S.questions.length, students: ids.length, avg, testId: S.meta.testId || null, pending: grades.reduce((a, g) => a + g.pending, 0) };
     try { await B.update(`teachers/${S.uid}/history/${code}`, summary); } catch (e) { console.error(e); }
     sessionSubs.forEach(u => u()); sessionSubs = [];
     try { localStorage.removeItem('examlock-active-' + S.uid); } catch (e) {}
@@ -140,6 +140,7 @@
     sessionSubs.forEach(u => u()); sessionSubs = [];
     seenEvents.clear(); eventsPrimed = false;
     Object.assign(S, { code, meta: null, students: {}, control: {}, events: {}, key: {}, questions: [], paper: null, overrides: {}, selected: null, slides: [] });
+    assigning = {};
     rowEls.clear(); $('#roster').innerHTML = ''; feedKeys.clear(); $('#feed').innerHTML = '';
     closeStudent();
     if (SS.code && SS.code !== code) stopShare();
@@ -189,7 +190,35 @@
     if (s.online === false) return 'offline';
     return s.status === 'testing' || s.status === 'watching' ? 'active' : 'waiting';
   }
-  const gradeOf = sid => EL.grade(S.questions, S.key, (S.students[sid] || {}).answers, S.overrides[sid]);
+  // A test made in sets: meta.sets = [{ n: 'A', ids: [...] }]. Each student answers only their set.
+  const metaSets = m => m && m.sets ? EL.asArray(m.sets) : null;
+  function setOfIn(sid, students, control) {
+    const s = students[sid] || {}, c = control[sid] || {};
+    return s.set != null ? Number(s.set) : c.set != null ? Number(c.set) : null;
+  }
+  const setOf = sid => setOfIn(sid, S.students, S.control);
+  function qsFor(all, sets, set) {
+    if (!sets || set == null || !sets[set]) return all;
+    const ids = new Set(EL.asArray(sets[set].ids));
+    return all.filter(q => ids.has(q.id));
+  }
+  const qsOf = sid => qsFor(S.questions, metaSets(S.meta), setOf(sid));
+  const gradeOf = sid => EL.grade(qsOf(sid), S.key, (S.students[sid] || {}).answers, S.overrides[sid]);
+  const multiSets = () => { const m = metaSets(S.meta); return m && m.length > 1 ? m : null; };
+  // online: sets are shared out evenly as students join (A, B, C, D, A, B …, with a random pick among the emptiest)
+  let assigning = {};
+  function assignSets() {
+    const sets = multiSets(); if (!sets || isPres()) return;
+    const count = sets.map(() => 0), ids = rosterOrder();
+    ids.forEach(id => { const k = setOf(id) != null ? setOf(id) : assigning[id]; if (k != null && count[k] != null) count[k]++; });
+    for (const id of ids) {
+      if (setOf(id) != null || assigning[id] != null || statusOf(id) === 'kicked') continue;
+      const min = Math.min(...count), low = count.map((c, i) => c === min ? i : -1).filter(i => i >= 0);
+      const k = low[Math.floor(Math.random() * low.length)];
+      assigning[id] = k; count[k]++;
+      B.update(P('control/' + id), { set: k });
+    }
+  }
 
   function queue() { if (renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; renderAll(); }); }
   // when every student has submitted, the test ends by itself
@@ -205,7 +234,7 @@
   }
   function renderAll() {
     if (!S.code) return;
-    checkAllDone();
+    checkAllDone(); assignSets();
     renderStats(); renderRoster(); renderAlerts();
     if (isPres() && fullOpen()) bumpFullQuiet();
     if (S.selected) renderStudent();
@@ -309,10 +338,10 @@
     return Object.keys(S.students).sort((a, b) => ((S.students[a].joinedAt || 0) - (S.students[b].joinedAt || 0)) || a.localeCompare(b));
   }
   function rowHTML(id) {
-    const s = S.students[id], st = statusOf(id), total = S.questions.length || 1;
+    const s = S.students[id], st = statusOf(id), mine = qsOf(id).length, total = mine || 1, ms = multiSets(), k = setOf(id);
     const sub = st === 'away' ? (isPres() ? 'Left the lesson now' : 'Left the test now') : st === 'locked' ? 'Locked · waiting for you'
       : st === 'submitted' && s.awayAfter ? 'Finished · outside the page now' : stText(st) + (isScreen() && st === 'active' ? ' · ' + screenTxt(id) : '');
-    const prog = isPres() ? '' : `<span class="s-prog">${s.answered || 0}/${S.questions.length}</span>
+    const prog = isPres() ? '' : `${ms && k != null ? `<span class="s-set" title="Test set">${EL.setLetter(k)}</span>` : ''}<span class="s-prog">${s.answered || 0}/${mine}</span>
         <span class="s-bar"><i style="transform:scaleX(${(s.answered || 0) / total})"></i></span>`;
     return `<div class="s-av">${esc(initials(s.name))}</div>
       <div class="s-main"><div class="s-name">${esc(s.name)}</div><div class="s-sub">${esc(sub)}</div></div>
@@ -525,11 +554,11 @@
       if (v.fq) { const f = $(`#mmList .qcard[data-qid="${v.fq}"]`); if (f) f.classList.add('focus'); }
       lastScrollY = -1;
     }
-    $('#mmTitle').textContent = S.meta ? S.meta.title : '';
+    $('#mmTitle').textContent = (S.meta ? S.meta.title : '') + (multiSets() && setOf(S.selected) != null ? ' · Set ' + EL.setLetter(setOf(S.selected)) : '');
     $('#mmWho').textContent = (s.name || '') + ' · code ' + S.code;
-    const n = s.answered || 0, total = S.questions.length || 1;
+    const n = s.answered || 0, mine = qsOf(S.selected).length, total = mine || 1;
     $('#mmProg').style.transform = `scaleX(${n / total})`;
-    $('#mmProgTxt').textContent = n + ' / ' + S.questions.length;
+    $('#mmProgTxt').textContent = n + ' / ' + mine;
     const y = v.y || 0;
     if (y !== lastScrollY) {
       const sc = $('#mScroll');
@@ -553,40 +582,71 @@
   }
   window.addEventListener('resize', () => { if (S.selected && S.tab === 'screen') { lastScrollY = -1; renderStudent(); } if (isPres()) paintOwnPtr(); });
 
-  function fmtAnswer(q, a) {
-    if (a == null || a === '') return '<span class="muted">(no answer)</span>';
-    if (q.type === 'mc') { const t = EL.asArray(q.options)[a]; return `<b>${EL.LETTERS[a]}</b>${t ? ' · ' + esc(t) : ''}`; }
+  // ---------------- one student's answers, for every question type
+  const LT = EL.LETTERS;
+  function plainAnswer(q, a) {
+    if (!EL.isAnswered(q, a)) return '';
+    if (q.type === 'mc') return LT[a] || a;
     if (q.type === 'tf') return a === 'true' ? 'True' : 'False';
-    return esc(a);
+    if (q.type === 'match') return EL.parts(a).map((v, k) => (k + 1) + '-' + (v === '' ? '?' : LT[v] || v)).join(' ');
+    if (q.type === 'fill') return EL.parts(a).map((v, k) => '(' + (k + 1) + ') ' + v).join(' ');
+    return String(a);
   }
-  function fmtKey(q) {
-    const k = S.key[q.id];
-    if (q.type === 'mc') { if (k == null) return '–'; const t = EL.asArray(q.options)[k]; return `<b>${EL.LETTERS[k]}</b>${t ? ' · ' + esc(t) : ''}`; }
+  function fmtAnswer(q, a) {
+    if (!EL.isAnswered(q, a)) return '<span class="muted">(no answer)</span>';
+    if (q.type === 'mc') { const t = EL.asArray(q.options)[a]; return `<b>${LT[a]}</b>${t ? ' · ' + esc(t) : ''}`; }
+    if (q.type === 'tf') return a === 'true' ? 'True' : 'False';
+    if (q.type === 'match') { const R = EL.asArray(q.right); return EL.parts(a, EL.asArray(q.left).length).map((v, k) => `<span class="pair">${k + 1} → <b>${v === '' ? '–' : LT[v]}</b>${v !== '' && R[v] ? ' ' + esc(R[v]) : ''}</span>`).join(''); }
+    if (q.type === 'fill') return EL.parts(a).map((v, k) => `<span class="pair">(${k + 1}) <b>${v ? esc(v) : '–'}</b></span>`).join('');
+    return `<span class="long">${esc(a)}</span>`;
+  }
+  function fmtKeyOf(q, k) {
+    if (q.type === 'mc') { if (k == null) return '–'; const t = EL.asArray(q.options)[k]; return `<b>${LT[k]}</b>${t ? ' · ' + esc(t) : ''}`; }
     if (q.type === 'tf') return k === 'true' ? 'True' : 'False';
+    if (q.type === 'match') { const R = EL.asArray(q.right); return EL.asArray(k).map((r, i) => `<span class="pair">${i + 1} → <b>${LT[r]}</b> ${esc(R[r] || '')}</span>`).join(''); }
+    if (q.type === 'fill') return EL.asArray(k).map((acc, i) => `<span class="pair">(${i + 1}) <b>${EL.asArray(acc).map(esc).join(' / ')}</b></span>`).join('');
+    if (q.type === 'essay') return k ? `<span class="long">${esc(k)}</span>` : '<span class="muted">no model answer</span>';
     const arr = EL.asArray(k); return arr.length ? arr.map(esc).join(' <span class="muted">or</span> ') : '<span class="muted">you mark this one</span>';
   }
+  const fmtKey = q => fmtKeyOf(q, S.key[q.id]);
+  const handMarked = q => ['short', 'essay', 'fill', 'match'].includes(q.type);
+  const STATE_TXT = { ok: 'Correct', bad: 'Wrong', part: 'Part marks', pend: 'To mark', blank: 'No answer' };
+  const stateOf = (g, q) => { const st = g.state[q.id]; if (st !== 'set') return st; const pts = Number(q.points) || 1; return g.got[q.id] >= pts ? 'ok' : g.got[q.id] > 0 ? 'part' : 'bad'; };
   function renderAnswers(sid) {
     const s = S.students[sid], g = gradeOf(sid), ov = S.overrides[sid] || {};
     const byId = {}; S.questions.forEach(q => { byId[q.id] = q; });
-    const order = (s.order && s.order.length ? s.order : S.questions.map(q => q.id));
-    const html = `<div class="ans-sum"><b>${g.score} / ${g.total}</b><span class="muted">${g.pct}% · marked automatically${Object.keys(ov).length ? ' + your changes' : ''}</span></div>` +
+    const order = (s.order && s.order.length ? s.order : qsOf(sid).map(q => q.id)).filter(id => byId[id]);
+    const ms = multiSets(), k = setOf(sid);
+    const html = `<div class="ans-sum"><b>${EL.fmtPts(g.score)} / ${g.total}</b><span class="muted">${g.pct}%${ms && k != null ? ' · Set ' + EL.setLetter(k) : ''} · marked automatically${Object.keys(ov).length ? ' + your marks' : ''}${g.pending ? ` · <b style="color:var(--amber)">${g.pending} to mark</b>` : ''}</span></div>` +
       order.map((id, i) => {
-        const q = byId[id]; if (!q) return '';
-        const a = (s.answers || {})[id], ok = g.marks[id];
-        return `<div class="ans-row ${ok ? 'ok' : 'bad'}">
-          <div class="ans-q"><b>${q.sheet ? q.n : i + 1}</b>${q.sheet ? '<span class="muted">Answer sheet</span>' : esc(q.text)}</div>
+        const q = byId[id], a = (s.answers || {})[id], st = stateOf(g, q), pts = Number(q.points) || 1;
+        const own = ov[id] != null;
+        const sug = q.type === 'short' && !own && st !== 'blank' ? ' (suggested)' : '';
+        let ctl = '';
+        if (handMarked(q) && st !== 'blank') {
+          ctl = `<label class="ov-pts">Points <input class="input sm ovpts" type="number" min="0" max="${pts}" step="0.5" data-q="${id}" value="${own || st !== 'pend' ? EL.fmtPts(g.got[id]) : ''}" placeholder="?"> / ${pts}</label>`;
+          if (q.type === 'short' || q.type === 'essay') ctl += `<button class="btn sm" data-ov="full" data-q="${id}">Full marks</button><button class="btn sm" data-ov="0" data-q="${id}">0</button>`;
+          if (own) ctl += `<button class="btn sm ghost" data-ov="auto" data-q="${id}">Undo</button>`;
+        }
+        return `<div class="ans-row ${st === 'ok' ? 'ok' : st === 'part' ? 'part' : st === 'pend' ? 'pend' : 'bad'}">
+          <div class="ans-q"><b>${q.sheet ? q.n : i + 1}</b>${q.sheet ? '<span class="muted">Answer sheet</span>' : esc(q.type === 'fill' ? String(q.text).replace(/\[\[\]\]/g, '____') : q.text)}</div>
           <div class="ans-line"><span>Answer</span><span>${fmtAnswer(q, a)}</span></div>
-          <div class="ans-line"><span>Correct</span><span>${fmtKey(q)}</span></div>
-          <div class="ans-mark"><span class="pill ${ok ? 'active' : 'away'}">${ok ? 'Correct' : 'Wrong'} · ${ok ? q.points || 1 : 0}/${q.points || 1}</span>
-            ${q.type === 'short' ? `<button class="btn sm" data-ov="1" data-q="${id}">Mark correct</button><button class="btn sm" data-ov="0" data-q="${id}">Mark wrong</button>${ov[id] != null ? `<button class="btn sm ghost" data-ov="auto" data-q="${id}">Undo</button>` : ''}` : ''}
-          </div></div>`;
+          <div class="ans-line"><span>${q.type === 'essay' ? 'Model' : 'Correct'}</span><span>${fmtKey(q)}</span></div>
+          <div class="ans-mark"><span class="pill ${st === 'ok' ? 'active' : st === 'pend' || st === 'part' ? 'submitted' : 'away'}">${STATE_TXT[st]}${sug} · ${st === 'pend' ? '?' : EL.fmtPts(g.got[id])}/${pts}</span>${ctl}</div></div>`;
       }).join('');
     if ($('#dt-answers')._h !== html) { $('#dt-answers')._h = html; $('#dt-answers').innerHTML = html; }
   }
+  const qById = id => S.questions.find(q => q.id === id) || {};
   $('#dt-answers').addEventListener('click', e => {
     const b = e.target.closest('[data-ov]'); if (!b) return;
-    const v = b.dataset.ov;
-    B.update(P('overrides/' + S.selected), { [b.dataset.q]: v === 'auto' ? null : v === '1' });
+    const v = b.dataset.ov, q = qById(b.dataset.q);
+    B.update(P('overrides/' + S.selected), { [b.dataset.q]: v === 'auto' ? null : v === 'full' ? (Number(q.points) || 1) : 0 });
+  });
+  $('#dt-answers').addEventListener('change', e => {
+    const i = e.target.closest('.ovpts'); if (!i) return;
+    const q = qById(i.dataset.q), pts = Number(q.points) || 1;
+    const v = i.value.trim() === '' ? null : Math.max(0, Math.min(pts, Math.round(Number(i.value) * 2) / 2 || 0));
+    B.update(P('overrides/' + S.selected), { [i.dataset.q]: v });
   });
   function renderLog(sid) {
     const list = Object.values(S.events || {}).filter(e => e.sid === sid || e.sid === '*').sort((a, b) => b.at - a.at);
@@ -622,13 +682,13 @@
   function exportCSV() {
     if (isPres()) return attendanceCSV(S.meta, S.students, S.control, S.code);
     const qs = S.questions;
-    const head = ['Name', 'Status', 'Score', 'Total', 'Percent', 'Times left', 'Seconds away', 'Device', 'Joined', 'Submitted'].concat(qs.map((q, i) => 'Q' + (q.sheet ? q.n : i + 1)));
+    const head = ['Name', 'Set', 'Status', 'Score', 'Total', 'Percent', 'Times left', 'Seconds away', 'Device', 'Joined', 'Submitted'].concat(qs.map((q, i) => 'Q' + (q.sheet ? q.n : i + 1)));
     const cell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
     const rows = Object.keys(S.students).map(id => {
       const s = S.students[id], g = gradeOf(id), a = s.answers || {};
-      return [s.name, STATUS_TXT[statusOf(id)], g.score, g.total, g.pct, s.leaves || 0, Math.round((s.awayMs || 0) / 1000), s.device,
+      return [s.name, setOf(id) != null && multiSets() ? EL.setLetter(setOf(id)) : '', STATUS_TXT[statusOf(id)], g.score, g.total, g.pct, s.leaves || 0, Math.round((s.awayMs || 0) / 1000), s.device,
         s.joinedAt ? new Date(s.joinedAt).toLocaleString() : '', s.submittedAt ? new Date(s.submittedAt).toLocaleString() : '']
-        .concat(qs.map(q => { const v = a[q.id]; if (v == null) return ''; return q.type === 'mc' ? EL.LETTERS[v] : v; }));
+        .concat(qs.map(q => plainAnswer(q, a[q.id])));
     }).sort((x, y) => String(x[0]).localeCompare(String(y[0])));
     const csv = '﻿' + [head].concat(rows).map(r => r.map(cell).join(',')).join('\r\n');
     const a = document.createElement('a');
@@ -703,7 +763,7 @@
     $('#testList').innerHTML = ids.map(id => {
       const t = S.tests[id], n = EL.asArray(t.questions).length;
       return `<div class="tcard ${S.editing && S.editing.id === id ? 'on' : ''}" data-tid="${id}"><b>${esc(t.title || 'Untitled')}</b>
-        <span>${n} question${n === 1 ? '' : 's'} · ${t.timeLimit ? t.timeLimit + ' min' : 'no time limit'}${t.paper ? ' · has file' : ''}</span></div>`;
+        <span>${t.pick && t.pick < n ? t.pick + ' of ' + n : n} question${n === 1 ? '' : 's'}${t.nsets > 1 ? ' · ' + t.nsets + ' sets' : ''} · ${t.timeLimit ? t.timeLimit + ' min' : 'no time limit'}${t.paper ? ' · has file' : ''}</span></div>`;
     }).join('') || '<p class="muted small">No tests yet.</p>';
   }
   $('#testList').addEventListener('click', async e => {
@@ -711,19 +771,36 @@
     if (S.dirty && !(await confirmBox('Discard unsaved changes?', '', 'Discard', true))) return;
     openEditor(JSON.parse(JSON.stringify(S.tests[c.dataset.tid])));
   });
-  const newQ = type => ({ id: 'q' + EL.rid(6), type, text: '', points: 1, options: type === 'mc' ? ['', '', '', ''] : null, answer: type === 'tf' ? 'true' : type === 'mc' ? 0 : '' });
+  const newQ = type => {
+    const q = { id: 'q' + EL.rid(6), type, text: '', points: type === 'essay' ? 5 : type === 'match' ? 4 : 1, options: null, answer: '' };
+    if (type === 'mc') { q.options = ['', '', '', '']; q.answer = 0; }
+    if (type === 'tf') q.answer = 'true';
+    if (type === 'match') { q.pairs = [['', ''], ['', ''], ['', ''], ['', '']]; q.extra = ''; q.text = 'Match each item on the left with the correct answer on the right.'; }
+    if (type === 'essay') q.model = '';
+    return q;
+  };
   $('#newTest').addEventListener('click', async () => {
     if (S.dirty && !(await confirmBox('Discard unsaved changes?', '', 'Discard', true))) return;
-    openEditor({ id: 't' + EL.rid(8), title: '', timeLimit: 0, shuffle: false, questions: [newQ('mc')] });
+    openEditor({ id: 't' + EL.rid(8), title: '', timeLimit: 0, shuffle: false, pick: 0, nsets: 1, questions: [newQ('mc')] });
     S.dirty = true;
   });
   function openEditor(t) {
-    t.questions = EL.asArray(t.questions).map(q => Object.assign(q, { options: q.type === 'mc' ? EL.asArray(q.options) : null }));
+    t.questions = EL.asArray(t.questions).map(q => {
+      q.options = q.type === 'mc' ? EL.asArray(q.options) : null;
+      if (q.type === 'match') q.pairs = EL.asArray(q.pairs).map(p => { const a = EL.asArray(p); return [a[0] || '', a[1] || '']; });
+      if (q.src) q.src = { page: q.src.page, box: EL.asArray(q.src.box) };
+      return q;
+    });
     if (t.paper) t.paper.pages = EL.asArray(t.paper.pages);
+    t.pick = Number(t.pick) || 0; t.nsets = Number(t.nsets) || 1;
+    t.sets = EL.asArray(t.sets).map(x => ({ n: x.n, ids: EL.asArray(x.ids) }));
+    t.paperClass = EL.asArray(t.paperClass);
     S.editing = t; S.dirty = false;
     go('tests');
     $('#edEmpty').classList.add('hidden'); $('#edMain').classList.remove('hidden');
     $('#edTitle').value = t.title || ''; $('#edTime').value = t.timeLimit || 0; $('#edShuffle').checked = !!t.shuffle;
+    $('#edPick').value = t.pick || 0; $('#edSets').value = String(Math.min(6, t.nsets));
+    edTab('qs');
     renderEditor(); renderTestList();
   }
   const hasSheet = t => t.questions.some(q => q.sheet);
@@ -739,11 +816,18 @@
     </div>`;
   }
   $('#edPaper').addEventListener('click', e => { if (e.target.closest('#paperRemove')) { delete S.editing.paper; markDirty(); renderEditor(); } });
+  function fillPrev(text) {
+    const b = EL.blanksOf(text);
+    return b.length ? `${b.length} blank${b.length === 1 ? '' : 's'}: ` + b.map((acc, k) => `<b>(${k + 1})</b> ${acc.length ? acc.map(esc).join(' / ') : '<span style="color:var(--amber)">empty</span>'}`).join(' · ')
+      : '<b style="color:var(--amber)">No blanks yet. Put each missing word in [[ ]].</b>';
+  }
+  const typeSelect = (q, i) => `<select class="input" data-i="${i}" data-f="type">${EL.TYPES.map(t => `<option value="${t}" ${q.type === t ? 'selected' : ''}>${EL.TYPE_LABEL[t]}</option>`).join('')}</select>`;
   function renderEditor() {
     const t = S.editing;
     renderPaper();
     $('#edShuffle').disabled = hasSheet(t);
     if (hasSheet(t)) $('#edShuffle').checked = t.shuffle = false;
+    const pages = window.Maker && Maker.hasPages();
     $('#edQs').innerHTML = t.questions.map((q, i) => {
       let body = '';
       if (q.sheet) {
@@ -761,19 +845,35 @@
           `<div class="row-between"><span class="eq-hint">${q.needKey ? '<b style="color:var(--amber)">Tick the correct answer</b>' : 'Tick the circle next to the correct answer'}</span>${q.options.length < 6 ? `<button class="btn sm" data-qa="addopt" data-i="${i}">+ Choice</button>` : ''}</div>`;
       } else if (q.type === 'tf') {
         body = `<div class="tf-pick">${['true', 'false'].map(v => `<label><input type="radio" name="c_${q.id}" data-i="${i}" data-f="answer" value="${v}" ${q.answer === v ? 'checked' : ''}>${v === 'true' ? 'True' : 'False'} is correct</label>`).join('')}</div>`;
+      } else if (q.type === 'match') {
+        body = `<div class="eq-pairs">${q.pairs.map((p, k) => `<div class="eq-pair"><span class="letter">${k + 1}</span>
+            <input class="input sm" data-i="${i}" data-f="pl" data-k="${k}" value="${esc(p[0])}" placeholder="Left side, e.g. Ribosome">
+            <span class="eq-arrow">→</span>
+            <input class="input sm" data-i="${i}" data-f="pr" data-k="${k}" value="${esc(p[1])}" placeholder="Its match, e.g. Makes proteins">
+            ${q.pairs.length > 2 ? `<button class="ibtn del" data-qa="delpair" data-i="${i}" data-k="${k}" title="Remove pair">✕</button>` : '<span></span>'}</div>`).join('')}</div>
+          <div class="row-between"><span class="eq-hint">Students see the right-hand side mixed up and lettered A, B, C … Part marks for each correct pair.</span>${q.pairs.length < 10 ? `<button class="btn sm" data-qa="addpair" data-i="${i}">+ Pair</button>` : ''}</div>
+          <input class="input sm" data-i="${i}" data-f="extra" value="${esc(q.extra || '')}" placeholder="Extra wrong answers on the right (optional), separated by |">`;
+      } else if (q.type === 'fill') {
+        body = `<span class="eq-hint">Put each missing word in [[double brackets]]: The [[nucleus]] controls the cell. Other accepted answers go after |, e.g. [[ATP|adenosine triphosphate]]. Part marks for each blank.</span>
+          <div class="fill-prev" data-fp="${i}">${fillPrev(q.text)}</div>`;
+      } else if (q.type === 'essay') {
+        body = `<textarea class="input" rows="3" data-i="${i}" data-f="model" placeholder="Model answer and how to give the marks (only you see this)">${esc(q.model || '')}</textarea>
+          <span class="eq-hint">You mark essays yourself. This model answer shows next to each student's answer and prints on the answer key.</span>`;
       } else {
         body = `<input class="input sm" data-i="${i}" data-f="answer" value="${esc(q.answer || '')}" placeholder="Accepted answers, separated by |   e.g.  mitochondria | mitochondrion">
-          <span class="eq-hint">Capital letters don't matter. Leave empty to mark it yourself.</span>`;
+          <span class="eq-hint">A matching answer gets a suggested mark that you can change. Capital letters don't matter. Leave empty to mark it all yourself.</span>`;
       }
+      if (q.explain && (q.type === 'mc' || q.type === 'tf')) body += `<div class="eq-hint eq-explain">Why: ${esc(q.explain)}</div>`;
       return `<div class="eq ${q.needKey ? 'need' : ''}" data-i="${i}">
         <div class="eq-head"><span class="eq-num">${i + 1}</span>
-          <select class="input" data-i="${i}" data-f="type"><option value="mc" ${q.type === 'mc' ? 'selected' : ''}>Multiple choice</option><option value="tf" ${q.type === 'tf' ? 'selected' : ''}>True / False</option><option value="short" ${q.type === 'short' ? 'selected' : ''}>Short answer</option></select>
+          ${typeSelect(q, i)}
           <input class="input pts" type="number" min="1" max="100" data-i="${i}" data-f="points" value="${q.points || 1}" title="Points"><span class="eq-hint">points</span>
           <div class="eq-tools">
             <button class="ibtn" data-qa="up" data-i="${i}" title="Move up">↑</button><button class="ibtn" data-qa="down" data-i="${i}" title="Move down">↓</button>
             <button class="ibtn" data-qa="dup" data-i="${i}" title="Duplicate">⧉</button><button class="ibtn del" data-qa="del" data-i="${i}" title="Delete">✕</button></div></div>
-        <textarea class="input" rows="2" data-i="${i}" data-f="text" placeholder="Question">${esc(q.text)}</textarea>
-        <div class="eq-img">${q.image ? `<img src="${q.image}" alt=""><button class="btn sm danger" data-qa="delimg" data-i="${i}">Remove picture</button>` : `<label class="btn sm">Add picture<input type="file" accept="image/*" hidden data-i="${i}" data-f="image"></label>`}</div>
+        <textarea class="input" rows="2" data-i="${i}" data-f="text" placeholder="${q.type === 'fill' ? 'e.g. Plants make glucose by [[photosynthesis]] in the [[chloroplast]].' : q.type === 'tf' ? 'Statement' : 'Question'}">${esc(q.text)}</textarea>
+        <div class="eq-img">${q.image ? `<img src="${q.image}" alt=""><button class="btn sm danger" data-qa="delimg" data-i="${i}">Remove picture</button>` : `<label class="btn sm">Add picture<input type="file" accept="image/*" hidden data-i="${i}" data-f="image"></label>`}
+          ${pages ? `<button class="btn sm" data-qa="crop" data-i="${i}">${q.image ? 'Re-cut from the paper' : 'Picture from the paper'}</button>` : ''}</div>
         ${body}</div>`;
     }).join('');
     infoLine();
@@ -782,18 +882,41 @@
     const t = S.editing; const pts = t.questions.reduce((a, q) => a + (Number(q.points) || 1), 0);
     const need = t.questions.filter(q => q.needKey).length;
     $('#edInfo').innerHTML = `${t.questions.length} questions · ${pts} points${need ? ` · <b style="color:var(--amber)">${need} still need a correct answer</b>` : ''}${S.dirty ? ' · not saved' : ''}`;
+    poolNote();
+  }
+  // "each student answers N" and "how many sets"
+  function poolNote() {
+    const t = S.editing, pool = t.questions.length, sheet = hasSheet(t);
+    $('#edPick').disabled = $('#edSets').disabled = sheet;
+    const n = Number(t.nsets) || 1, pick = Number(t.pick) || 0;
+    let h;
+    if (sheet) h = 'Sets and picking need typed questions, so they are off for answer-sheet rows.';
+    else {
+      const each = pick > 0 && pick < pool;
+      h = each ? `Pool of <b>${pool}</b> questions · each student gets <b>${pick}</b> picked from it` : `Every student answers all <b>${pool}</b> questions`;
+      if (n > 1) h += ` · <b>${n} sets</b> (${Array.from({ length: n }, (_, k) => EL.setLetter(k)).join(' ')}), shared out evenly online`;
+      else if (each) h += ' · everyone gets the same pick (choose 2+ sets to mix it up)';
+      if (pick > pool) h += ` · <span style="color:var(--amber)">that's more than the ${pool} in the pool, so everyone gets all of them</span>`;
+    }
+    $('#edPool').innerHTML = h;
   }
   function markDirty() { S.dirty = true; infoLine(); }
   $('#edTitle').addEventListener('input', () => { S.editing.title = $('#edTitle').value; markDirty(); });
   $('#edTime').addEventListener('input', () => { S.editing.timeLimit = Math.max(0, Number($('#edTime').value) || 0); markDirty(); });
   $('#edShuffle').addEventListener('change', () => { S.editing.shuffle = $('#edShuffle').checked; markDirty(); });
+  $('#edPick').addEventListener('input', () => { S.editing.pick = Math.max(0, Math.round(Number($('#edPick').value) || 0)); markDirty(); });
+  $('#edSets').addEventListener('change', () => { S.editing.nsets = Number($('#edSets').value) || 1; markDirty(); if (S.edTab === 'sets') renderSetsPane(); });
   $('#edQs').addEventListener('input', e => {
     const el = e.target, i = Number(el.dataset.i), f = el.dataset.f; if (isNaN(i) || !f) return;
     const q = S.editing.questions[i];
-    if (f === 'text') q.text = el.value;
+    if (f === 'text') { q.text = el.value; if (q.type === 'fill') { const fp = $(`[data-fp="${i}"]`); if (fp) fp.innerHTML = fillPrev(q.text); } }
     else if (f === 'opt') q.options[Number(el.dataset.k)] = el.value;
     else if (f === 'points') q.points = Math.max(1, Number(el.value) || 1);
     else if (f === 'answer' && q.type === 'short') q.answer = el.value;
+    else if (f === 'pl') q.pairs[Number(el.dataset.k)][0] = el.value;
+    else if (f === 'pr') q.pairs[Number(el.dataset.k)][1] = el.value;
+    else if (f === 'extra') q.extra = el.value;
+    else if (f === 'model') q.model = el.value;
     markDirty();
   });
   $('#edQs').addEventListener('change', e => {
@@ -801,26 +924,177 @@
     const q = S.editing.questions[i];
     if (f === 'answer' && q.type === 'mc') { q.answer = Number(el.value); delete q.needKey; renderEditor(); }
     else if (f === 'answer' && q.type === 'tf') { q.answer = el.value; delete q.needKey; if (q.sheet) renderEditor(); }
-    else if (f === 'type') { const n = newQ(el.value); n.id = q.id; n.text = q.text; n.points = q.points; if (q.image) n.image = q.image; S.editing.questions[i] = n; renderEditor(); }
-    else if (f === 'image' && el.files[0]) { EL.loadImage(el.files[0], 900).then(url => { q.image = url; markDirty(); renderEditor(); }); return; }
+    else if (f === 'type') {
+      const n = newQ(el.value); n.id = q.id; if (q.text || n.type !== 'match') n.text = q.text;
+      if (q.points > 1 && n.type !== 'essay' && q.type !== 'essay') n.points = q.points;
+      if (q.image) n.image = q.image; if (q.src) n.src = q.src;
+      S.editing.questions[i] = n; renderEditor();
+    }
+    else if (f === 'image' && el.files[0]) { EL.loadImage(el.files[0], 900).then(url => { q.image = url; delete q.src; markDirty(); renderEditor(); }); return; }
     markDirty();
   });
-  $('#edQs').addEventListener('click', e => {
+  $('#edQs').addEventListener('click', async e => {
     const b = e.target.closest('[data-qa]'); if (!b) return;
     const qs = S.editing.questions, i = Number(b.dataset.i), a = b.dataset.qa;
+    if (a === 'crop') {
+      const r = await Maker.pickPicture(qs[i].src); if (!r) return;
+      qs[i].image = r.image; qs[i].src = r.src; markDirty(); renderEditor(); return;
+    }
     if (a === 'up' && i > 0) [qs[i - 1], qs[i]] = [qs[i], qs[i - 1]];
     if (a === 'down' && i < qs.length - 1) [qs[i + 1], qs[i]] = [qs[i], qs[i + 1]];
     if (a === 'dup') { const c = JSON.parse(JSON.stringify(qs[i])); c.id = 'q' + EL.rid(6); qs.splice(i + 1, 0, c); }
     if (a === 'del') qs.splice(i, 1);
     if (a === 'addopt') qs[i].options.push('');
     if (a === 'delopt') { const k = Number(b.dataset.k); qs[i].options.splice(k, 1); if (qs[i].answer === k) qs[i].answer = 0; else if (qs[i].answer > k) qs[i].answer--; }
-    if (a === 'delimg') delete qs[i].image;
+    if (a === 'addpair') qs[i].pairs.push(['', '']);
+    if (a === 'delpair') qs[i].pairs.splice(Number(b.dataset.k), 1);
+    if (a === 'delimg') { delete qs[i].image; delete qs[i].src; }
     markDirty(); renderEditor();
   });
   $$('[data-add]').forEach(b => b.addEventListener('click', () => {
     S.editing.questions.push(newQ(b.dataset.add)); markDirty(); renderEditor();
     setTimeout(() => { const all = $$('#edQs .eq'); const last = all[all.length - 1]; if (last) { last.scrollIntoView({ behavior: 'smooth', block: 'center' }); const ta = last.querySelector('textarea'); if (ta) ta.focus(); } }, 50);
   }));
+
+  // ---------------- sets: one fixed pick per set, saved with the test, so paper and iPad match
+  function ensureSets(t) {
+    const pool = t.questions;
+    if (!pool.length || hasSheet(t)) { t.sets = null; return false; }
+    const n = Math.max(1, Math.min(6, Number(t.nsets) || 1));
+    const pick = Number(t.pick) > 0 && Number(t.pick) < pool.length ? Number(t.pick) : pool.length;
+    if (n === 1 && pick === pool.length) { t.sets = [{ n: 'A', ids: pool.map(q => q.id) }]; return false; }
+    const ids = new Set(pool.map(q => q.id));
+    const ok = EL.asArray(t.sets).length === n && t.sets.every(x => { const a = EL.asArray(x.ids); return a.length === pick && new Set(a).size === pick && a.every(id => ids.has(id)); });
+    if (ok) return false;
+    t.sets = EL.makeSets(pool, n, pick);
+    return true;
+  }
+  function edTab(which) {
+    S.edTab = which;
+    $$('#edTabs button').forEach(b => b.classList.toggle('on', b.dataset.et === which));
+    $('#edQsPane').classList.toggle('hidden', which !== 'qs');
+    $('#edSetsPane').classList.toggle('hidden', which !== 'sets');
+    if (which === 'sets') { renderSetsPane(); loadSetResults(S.editing).then(() => { if (S.edTab === 'sets') renderSetsPane(); }); }
+  }
+  $('#edTabs').addEventListener('click', e => { const b = e.target.closest('[data-et]'); if (b) edTab(b.dataset.et); });
+
+  // students who took this test online, per set (read from each finished session of this test)
+  const SV = { set: 0, results: {} };
+  async function loadSetResults(t) {
+    if (!t) return;
+    const codes = Object.keys(S.history).filter(c => S.history[c].testId === t.id && S.history[c].kind !== 'present');
+    const out = [];
+    for (const c of codes) {
+      let d; try { d = await B.get(`sessions/${c}`); } catch (e) { continue; }
+      if (!d || !d.meta) continue;
+      const split = EL.splitPaper(d.questions), sets = metaSets(d.meta), studs = d.students || {}, ctl = d.control || {};
+      const rows = Object.keys(studs).filter(id => !(ctl[id] || {}).kicked).map(id => {
+        const k = setOfIn(id, studs, ctl), g = EL.grade(qsFor(split.questions, sets, k), d.key || {}, studs[id].answers, (d.overrides || {})[id]);
+        return { name: studs[id].name, set: k == null ? 0 : k, score: g.score, total: g.total, pending: g.pending, done: studs[id].status === 'submitted' };
+      });
+      out.push({ code: c, at: d.meta.createdAt, rows });
+    }
+    SV.results[t.id] = out.sort((a, b) => b.at - a.at);
+  }
+  function editorKey(q) {
+    const LT = EL.LETTERS;
+    if (q.type === 'mc') return `<b>${LT[q.answer]}</b> · ${esc(EL.asArray(q.options)[q.answer] || '')}`;
+    if (q.type === 'tf') return `<b>${q.answer === 'true' ? 'True' : 'False'}</b>`;
+    if (q.type === 'match') { const m = Printer.layout(q); return m.key.map((r, k) => `${k + 1}→<b>${LT[r]}</b>`).join(' · '); }
+    if (q.type === 'fill') return EL.blanksOf(q.text).map((acc, k) => `(${k + 1}) <b>${acc.map(esc).join(' / ')}</b>`).join(' · ');
+    if (q.type === 'short') return String(q.answer || '').trim() ? '<b>' + String(q.answer).split('|').map(x => esc(x.trim())).join(' / ') + '</b>' : '<span class="muted">you mark it</span>';
+    return `<span class="muted">Model:</span> ${esc(String(q.model || '').slice(0, 220))}${String(q.model || '').length > 220 ? '…' : ''}`;
+  }
+  function renderSetsPane() {
+    const t = S.editing, host = $('#edSetsPane');
+    if (hasSheet(t)) { host.innerHTML = '<div class="sets-empty muted">Sets need typed questions. This test uses answer-sheet rows for a paper you already have, so print that paper yourself.</div>'; return; }
+    if (!t.questions.length) { host.innerHTML = '<div class="sets-empty muted">Add some questions first.</div>'; return; }
+    if (ensureSets(t)) markDirty();
+    const sets = t.sets, n = sets.length; if (SV.set >= n) SV.set = 0;
+    const byId = {}; t.questions.forEach(q => { byId[q.id] = q; });
+    const cur = sets[SV.set], qs = cur.ids.map(id => byId[id]).filter(Boolean);
+    const pts = qs.reduce((a, q) => a + (Number(q.points) || 1), 0);
+    const totals = sets.map(x => x.ids.reduce((a, id) => a + (Number((byId[id] || {}).points) || 1), 0));
+    const online = SV.results[t.id] || [], paper = t.paperClass || [];
+    const cnt = k => online.reduce((a, r) => a + r.rows.filter(x => x.set === k).length, 0) + paper.filter(p => Number(p.set) === k).length;
+    const name = k => n > 1 ? 'Set ' + sets[k].n : 'The test';
+    const onl = online.map(r => ({ r, rows: r.rows.filter(x => x.set === SV.set) })).filter(x => x.rows.length);
+    const pap = paper.map((p, i) => Object.assign({ i }, p)).filter(p => Number(p.set) === SV.set);
+    const studs = (onl.length || pap.length) ? onl.map(({ r, rows }) => `<div class="ss-group"><span class="small muted">Online · ${new Date(r.at).toLocaleDateString([], { day: 'numeric', month: 'short' })} · ${r.code}</span>` +
+        rows.sort((a, b) => a.name.localeCompare(b.name)).map(x => `<div class="ss-row"><span>${esc(x.name)}</span><b>${x.done ? EL.fmtPts(x.score) + '/' + x.total : '<span class="muted">not finished</span>'}</b>${x.pending ? `<span class="pendtag">${x.pending} to mark</span>` : ''}</div>`).join('') + '</div>').join('') +
+      (pap.length ? `<div class="ss-group"><span class="small muted">Paper</span>${pap.map(p => `<div class="ss-row"><span>${esc(p.name)}</span><b>${p.score !== '' && p.score != null ? esc(p.score) + '/' + totals[SV.set] : '<span class="muted">no score yet</span>'}</b></div>`).join('')}</div>` : '')
+      : '<p class="muted small">Nobody yet. Online students appear here after a test. Add a paper class below.</p>';
+    host.innerHTML = `
+      <div class="sets-head">
+        <div class="set-chips">${sets.map((x, k) => `<button type="button" class="set-chip ${k === SV.set ? 'on' : ''}" data-set="${k}"><b>${n > 1 ? x.n : 'All'}</b><span>${cnt(k)} student${cnt(k) === 1 ? '' : 's'}</span></button>`).join('')}</div>
+        <div class="sets-acts">${n > 1 || (t.pick && t.pick < t.questions.length) ? `<button class="btn sm" data-sa="remake" type="button">Make new sets</button>` : ''}
+          ${n > 1 ? `<button class="btn sm" data-sa="printall" type="button">${icon('print')}All test papers</button><button class="btn sm" data-sa="keyall" type="button">${icon('print')}All answer keys</button>` : ''}</div>
+      </div>
+      ${S.dirty ? '<div class="sets-warn small">Not saved yet. Printing saves the test first, so the papers and the online test stay the same.</div>' : ''}
+      <div class="set-card">
+        <div class="set-top"><div><span class="label">${name(SV.set)}</span><h3>${qs.length} questions · ${pts} points</h3></div>
+          <div class="set-btns"><button class="btn primary sm" data-sa="print" type="button">${icon('print')}Print test paper</button><button class="btn sm" data-sa="key" type="button">${icon('print')}Print answer key</button></div></div>
+        <div class="set-body">
+          <div class="set-qs">${qs.map((q, i) => `<div class="set-q"><b>${i + 1}</b><div><div class="set-qt"><span class="kind">${EL.TYPE_LABEL[q.type]}</span>${esc(q.type === 'fill' ? String(q.text).replace(/\[\[(.*?)\]\]/g, '____') : q.text)}</div><div class="set-ans">${editorKey(q)}</div></div></div>`).join('')}</div>
+          <div class="set-studs"><span class="label">Who got ${n > 1 ? 'set ' + cur.n : 'it'}</span>${studs}</div>
+        </div>
+      </div>
+      <div class="paper-class">
+        <div class="pc-head"><div><span class="label">Paper test · who gets which set</span><div class="small muted">Giving it on paper? Add your class, pick the set next to each name, print, then type each score after marking.</div></div>
+          <div class="sets-acts">${n > 1 ? `<button class="btn sm" data-sa="even" type="button">Share sets out evenly</button>` : ''}${paper.length ? `<button class="btn sm" data-sa="classlist" type="button">${icon('print')}Print class list</button>` : ''}</div></div>
+        <div class="pc-add"><textarea class="input" id="pcNames" rows="2" placeholder="Paste student names, one per line"></textarea><button class="btn sm" data-sa="addnames" type="button">Add names</button></div>
+        ${paper.length ? `<table class="pc-table"><thead><tr><th>No.</th><th>Name</th><th>Set</th><th>Score</th><th></th></tr></thead><tbody>${paper.map((p, i) => `<tr>
+          <td class="mono">${i + 1}</td><td><input class="input sm" data-pc="name" data-i="${i}" value="${esc(p.name)}"></td>
+          <td><select class="input sm" data-pc="set" data-i="${i}">${sets.map((x, k) => `<option value="${k}" ${Number(p.set) === k ? 'selected' : ''}>${n > 1 ? x.n : '–'}</option>`).join('')}</select></td>
+          <td class="pc-score"><input class="input sm" type="number" min="0" step="0.5" data-pc="score" data-i="${i}" value="${esc(p.score == null ? '' : p.score)}"><span class="muted">/ ${totals[Number(p.set)] || totals[0]}</span></td>
+          <td><button class="ibtn del" data-sa="delname" data-i="${i}" type="button" title="Remove">✕</button></td></tr>`).join('')}</tbody></table>` : ''}
+      </div>`;
+  }
+  async function saveForPrint() {
+    if (!S.dirty) return true;
+    if (!$('#edTitle').value.trim()) { EL.toast('Give the test a title first.', 'red'); return false; }
+    try { await saveTest(); return true; } catch (ex) { EL.toast('Could not save: ' + esc(ex.message || ex), 'red', 8000); return false; }
+  }
+  $('#edSetsPane').addEventListener('click', async e => {
+    const c = e.target.closest('[data-set]'); if (c) { SV.set = Number(c.dataset.set); renderSetsPane(); return; }
+    const b = e.target.closest('[data-sa]'); if (!b) return;
+    const t = S.editing, a = b.dataset.sa, all = (t.sets || []).map((_, k) => k);
+    if (a === 'remake') {
+      if (!(await confirmBox('Make new sets?', 'Each set gets a new random pick. Papers you already printed will not match the new sets.', 'Make new sets'))) return;
+      t.sets = EL.makeSets(t.questions, t.nsets, Number(t.pick) || 0); markDirty(); renderSetsPane(); return;
+    }
+    if (a === 'print' || a === 'key' || a === 'printall' || a === 'keyall') {
+      // open the tab first (pop-up blockers allow it only straight from the click), then save
+      const w = Printer.blank();
+      if (!(await saveForPrint())) { if (w) w.close(); return; }
+      const which = a.endsWith('all') ? all : [SV.set];
+      if (a.startsWith('print')) Printer.paper(t, which, w); else Printer.key(t, which, w);
+      renderSetsPane(); return;
+    }
+    if (a === 'even') { t.paperClass.forEach((p, i) => { p.set = i % t.sets.length; }); markDirty(); renderSetsPane(); return; }
+    if (a === 'addnames') {
+      const names = ($('#pcNames').value || '').split(/\r?\n/).map(x => x.replace(/^\s*\d+[.)]?\s+/, '').trim()).filter(Boolean);
+      if (!names.length) return EL.toast('Paste the names first, one per line.', 'amber');
+      const start = t.paperClass.length;
+      names.forEach((nm, k) => t.paperClass.push({ name: nm.slice(0, 80), set: (start + k) % t.sets.length, score: '' }));
+      markDirty(); renderSetsPane(); return;
+    }
+    if (a === 'delname') { t.paperClass.splice(Number(b.dataset.i), 1); markDirty(); renderSetsPane(); return; }
+    if (a === 'classlist') {
+      const byId = {}; t.questions.forEach(q => { byId[q.id] = q; });
+      Printer.classList(t, t.paperClass, t.sets.map(x => x.ids.reduce((s, id) => s + (Number((byId[id] || {}).points) || 1), 0)));
+    }
+  });
+  $('#edSetsPane').addEventListener('input', e => {
+    const f = e.target.dataset.pc; if (!f || f === 'set') return;
+    const p = S.editing.paperClass[Number(e.target.dataset.i)]; if (!p) return;
+    p[f] = f === 'score' ? e.target.value : e.target.value.slice(0, 80);
+    S.dirty = true; $('#edInfo') && infoLine();
+  });
+  $('#edSetsPane').addEventListener('change', e => {
+    if (e.target.dataset.pc !== 'set') return;
+    S.editing.paperClass[Number(e.target.dataset.i)].set = Number(e.target.value); markDirty(); renderSetsPane();
+  });
 
   // answer-sheet rows: for a paper/scanned test, students just pick A-D per number
   function sheetRows(n, kind, start) {
@@ -886,15 +1160,30 @@
       if (!q.text.trim() && !q.image) return `${label} is empty.`;
       if (q.type === 'mc' && q.options.filter(o => o.trim()).length < 2) return `${label} needs at least 2 choices.`;
       if (q.type === 'mc' && !(q.options[q.answer] || '').trim()) return `${label}: the correct choice is empty.`;
+      if (q.type === 'match') {
+        if (q.pairs.some(p => !!p[0].trim() !== !!p[1].trim())) return `${label}: one pair has only one side filled in.`;
+        if (q.pairs.filter(p => p[0].trim() && p[1].trim()).length < 2) return `${label} needs at least 2 pairs.`;
+      }
+      if (q.type === 'fill') {
+        const b = EL.blanksOf(q.text);
+        if (!b.length) return `${label}: put the missing words in [[double brackets]].`;
+        if (b.some(acc => !acc.length)) return `${label}: one of the [[ ]] blanks is empty.`;
+      }
     }
     return null;
   }
   async function saveTest() {
     const t = S.editing;
     t.title = $('#edTitle').value.trim(); t.updatedAt = B.now();
-    t.questions.forEach(q => { if (q.type === 'mc' && !q.sheet) q.options = q.options.map(o => o.trim()); });
+    t.questions.forEach(q => {
+      if (q.type === 'mc' && !q.sheet) q.options = q.options.map(o => o.trim());
+      if (q.type === 'match') q.pairs = q.pairs.map(p => [p[0].trim(), p[1].trim()]).filter(p => p[0] || p[1]);
+    });
+    const had = EL.asArray(t.sets).length > 1 || EL.asArray(t.sets).some(x => EL.asArray(x.ids).length < t.questions.length);
+    if (ensureSets(t) && had) EL.toast('<b>The sets were made again</b><br><span class="muted">The questions changed, so each set has a new pick. Print the papers again.</span>', 'amber', 8000);
     await B.set(`teachers/${S.uid}/tests/${t.id}`, JSON.parse(JSON.stringify(t)));
     S.dirty = false; renderEditor(); renderTestList();
+    if (S.edTab === 'sets') renderSetsPane();
   }
   $('#edSave').addEventListener('click', async () => {
     if (!$('#edTitle').value.trim()) return EL.toast('Give the test a title first.', 'red');
@@ -912,25 +1201,43 @@
     try { await saveTest(); await deploy(S.editing); } catch (ex) { console.error(ex); EL.toast('Could not start: ' + esc(ex.message || ex), 'red', 8000); }
   });
 
+  // What students may read (questions, no answers) and what only the teacher reads (key).
+  // Fill-in sentences go out with the answers taken out; matching goes out already mixed.
+  function forStudents(q) {
+    const o = { id: q.id, type: q.type, text: q.text || '', points: Number(q.points) || 1 };
+    if (q.type === 'mc') o.options = q.options;
+    if (q.type === 'fill') o.text = EL.hideBlanks(q.text);
+    if (q.type === 'match') { const m = Printer.layout(q); o.left = m.left; o.right = m.right; }
+    if (q.image) o.image = q.image; if (q.sheet) { o.sheet = true; o.n = q.n; }
+    return o;
+  }
+  function keyOf(q) {
+    if (q.type === 'short') return String(q.answer || '').split('|').map(x => x.trim()).filter(Boolean);
+    if (q.type === 'fill') return EL.blanksOf(q.text);
+    if (q.type === 'match') return Printer.layout(q).key;
+    if (q.type === 'essay') return q.model || '';
+    return q.answer;
+  }
   async function deploy(t) {
     let code = null;
     for (let i = 0; i < 6; i++) { const c = EL.makeCode(); if (!(await B.get(`sessions/${c}/meta`))) { code = c; break; } }
     if (!code) return EL.toast('Could not make a code. Try again.', 'red');
     const now = B.now();
+    // a pool or several sets: every student gets their own set; otherwise everyone gets everything
+    const sets = !hasSheet(t) && EL.asArray(t.sets).length && (t.sets.length > 1 || t.sets[0].ids.length < t.questions.length) ? t.sets : null;
+    const used = sets ? new Set(sets.flatMap(x => x.ids)) : null;
+    const list = used ? t.questions.filter(q => used.has(q.id)) : t.questions;
     busy('Starting the test…');
     try {
-      await B.set(`sessions/${code}/meta`, { title: t.title.trim(), status: 'waiting', createdAt: now, timeLimit: Number(t.timeLimit) || 0, shuffle: !!t.shuffle, release: false, owner: S.uid, testId: t.id });
-      const questions = t.questions.map(q => {
-        const o = { id: q.id, type: q.type, text: q.text || '', points: Number(q.points) || 1 };
-        if (q.type === 'mc') o.options = q.options; if (q.image) o.image = q.image; if (q.sheet) { o.sheet = true; o.n = q.n; }
-        return o;
-      });
+      await B.set(`sessions/${code}/meta`, Object.assign({ title: t.title.trim(), status: 'waiting', createdAt: now, timeLimit: Number(t.timeLimit) || 0, shuffle: !!t.shuffle, release: false, owner: S.uid, testId: t.id },
+        sets ? { sets: sets.map(x => ({ n: x.n, ids: x.ids })) } : {}));
+      const questions = list.map(forStudents);
       // the test paper travels as the first item of the questions list (students can read that list)
       if (t.paper) questions.unshift({ id: 'paper', type: 'paper', name: t.paper.name || '', pages: EL.asArray(t.paper.pages), text: t.paper.text || '' });
       const key = {};
-      t.questions.forEach(q => { key[q.id] = q.type === 'short' ? String(q.answer || '').split('|').map(x => x.trim()).filter(Boolean) : q.answer; });
+      list.forEach(q => { key[q.id] = keyOf(q); });
       await B.update(`sessions/${code}`, { questions, key });
-      await B.set(`teachers/${S.uid}/history/${code}`, { title: t.title.trim(), createdAt: now, n: t.questions.length });
+      await B.set(`teachers/${S.uid}/history/${code}`, { title: t.title.trim(), createdAt: now, n: sets ? sets[0].ids.length : list.length, testId: t.id });
     } finally { busy(''); }
     play('granted');
     await openSession(code);
@@ -943,7 +1250,7 @@
     $('#archiveList').innerHTML = ids.map(c => {
       const h = S.history[c], done = !!h.endedAt, pres = h.kind === 'present';
       const facts = pres ? `${h.mode === 'screen' ? 'Screen share' : h.n + ' slides'}${done ? ` · ${h.students || 0} students · ${h.left || 0} left the page` : ''}`
-        : `${h.n} questions${done ? ` · ${h.students || 0} students · average ${h.avg || 0}%` : ''}`;
+        : `${h.n} questions${done ? ` · ${h.students || 0} students · average ${h.avg || 0}%` : ''}${done && h.pending ? ` · <span style="color:var(--amber)">${h.pending} to mark</span>` : ''}`;
       return `<div class="arow" data-arc="${done ? 'sheet' : 'open'}" data-c="${c}"><span class="code">${c}</span>
         <div class="grow"><b>${pres ? `<span class="kind-tag">${h.mode === 'screen' ? 'PowerPoint' : 'Slides'}</span>` : ''}${esc(h.title)}</b><div class="small muted">${new Date(h.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${facts}${done ? '' : ' · <span style="color:var(--gfp)">still open</span>'}</div></div>
         ${pres && done ? `<button class="btn sm" data-arc="again" data-c="${c}">${icon('play')}Present again</button>` : ''}
@@ -964,7 +1271,7 @@
     }
   });
 
-  // one row per student, one small mark per question
+  // one row per student, one small mark per question (blank where a question wasn't in their set)
   let MS = null;
   async function openMarksheet(code) {
     go('archive');
@@ -973,64 +1280,143 @@
     const d = (await B.get(`sessions/${code}`)) || {};
     if ((d.meta || {}).kind === 'present') return renderAttendance(code, d);
     const split = EL.splitPaper(d.questions);
-    MS = { code, meta: d.meta || {}, questions: split.questions, key: d.key || {}, students: d.students || {}, control: d.control || {}, overrides: d.overrides || {} };
+    MS = { code, meta: d.meta || {}, questions: split.questions, key: d.key || {}, students: d.students || {}, control: d.control || {}, overrides: d.overrides || {}, sets: metaSets(d.meta) };
     renderMarksheet();
   }
+  function msRows() {
+    const m = MS;
+    return Object.keys(m.students).filter(id => !(m.control[id] || {}).kicked)
+      .sort((a, b) => (m.students[a].name || '').localeCompare(m.students[b].name || ''))
+      .map(id => {
+        const k = setOfIn(id, m.students, m.control), mine = qsFor(m.questions, m.sets, k);
+        return { id, s: m.students[id], k, mine: new Set(mine.map(q => q.id)), g: EL.grade(mine, m.key, m.students[id].answers, m.overrides[id]) };
+      });
+  }
+  function msPending(rows) {
+    const out = [];
+    rows.forEach(r => MS.questions.forEach(q => { if (r.mine.has(q.id) && r.g.state[q.id] === 'pend') out.push([r.id, q.id]); }));
+    return out;
+  }
   function renderMarksheet() {
-    const m = MS, qs = m.questions;
-    const ids = Object.keys(m.students).filter(id => !(m.control[id] || {}).kicked)
-      .sort((a, b) => (m.students[a].name || '').localeCompare(m.students[b].name || ''));
-    const rows = ids.map(id => ({ id, s: m.students[id], g: EL.grade(qs, m.key, m.students[id].answers, m.overrides[id]) }));
-    const qRight = qs.map(q => rows.filter(r => r.g.marks[q.id]).length);
+    const m = MS, qs = m.questions, multi = m.sets && m.sets.length > 1;
+    const rows = msRows();
+    const had = q => rows.filter(r => r.mine.has(q.id));
+    const qRight = qs.map(q => { const h = had(q); return h.length ? Math.round(h.filter(r => r.g.marks[q.id]).length / h.length * 100) + '%' : '–'; });
     const avg = rows.length ? Math.round(rows.reduce((a, r) => a + r.g.pct, 0) / rows.length) : 0;
-    const shortAns = (q, a) => a == null || a === '' ? '-' : q.type === 'mc' ? EL.LETTERS[a] : q.type === 'tf' ? (a === 'true' ? 'True' : 'False') : String(a);
+    const pend = msPending(rows).length;
+    const sym = (st, got) => ({ ok: '✓', bad: '✗', blank: '·', pend: '?', part: EL.fmtPts(got) }[st]);
     $('#arcDetail').innerHTML = `
       <div class="ms-head">
         <button class="btn sm ghost" id="msBack">← Past results</button>
         <div class="ms-title"><span class="label">Mark sheet · ${esc(m.code)}</span><h2>${esc(m.meta.title || 'Test')}</h2>
-          <div class="small muted">${m.meta.createdAt ? new Date(m.meta.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''} · ${rows.length} students · ${qs.length} questions · class average <b>${avg}%</b></div></div>
+          <div class="small muted">${m.meta.createdAt ? new Date(m.meta.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''} · ${rows.length} students · ${multi ? m.sets.length + ' sets · ' : ''}${multi || (m.sets && m.sets[0] && EL.asArray(m.sets[0].ids).length < qs.length) ? EL.asArray(m.sets[0].ids).length + ' questions each from ' + qs.length : qs.length + ' questions'} · class average <b>${avg}%</b></div></div>
+        ${pend ? `<button class="btn sm primary" id="msMark">${icon('check')}Mark written answers (${pend})</button>` : ''}
         <button class="btn sm" id="msCsv">${icon('download')}Download</button>
       </div>
       <div class="ms-wrap"><table class="ms">
-        <thead><tr><th class="ms-name">Student</th><th class="ms-num">Score</th><th class="ms-num">Left</th>
-          ${qs.map((q, i) => `<th class="ms-q" title="${esc(q.sheet ? 'Number ' + q.n : q.text)}">${q.sheet ? q.n : i + 1}</th>`).join('')}</tr></thead>
+        <thead><tr><th class="ms-name">Student</th>${multi ? '<th class="ms-num">Set</th>' : ''}<th class="ms-num">Score</th><th class="ms-num">Left</th>
+          ${qs.map((q, i) => `<th class="ms-q" title="${esc(q.sheet ? 'Number ' + q.n : EL.TYPE_LABEL[q.type] + ': ' + q.text)}">${q.sheet ? q.n : i + 1}</th>`).join('')}</tr></thead>
         <tbody>${rows.map(r => `<tr><td class="ms-name">${esc(r.s.name)}${r.s.status !== 'submitted' ? ' <span class="small muted">(not submitted)</span>' : ''}</td>
-          <td class="ms-num"><b>${r.g.score}/${r.g.total}</b> <span class="muted">${r.g.pct}%</span></td>
+          ${multi ? `<td class="ms-num"><b>${r.k == null ? '–' : EL.setLetter(r.k)}</b></td>` : ''}
+          <td class="ms-num"><b>${EL.fmtPts(r.g.score)}/${r.g.total}</b> <span class="muted">${r.g.pct}%</span>${r.g.pending ? ` <span class="pendtag">${r.g.pending} to mark</span>` : ''}</td>
           <td class="ms-num ${r.s.leaves ? 'bad' : ''}">${r.s.leaves || 0}</td>
           ${qs.map(q => {
-            const a = (r.s.answers || {})[q.id], ok = r.g.marks[q.id], blank = a == null || a === '';
-            const can = q.type === 'short' && !blank;
-            return `<td class="ms-c ${ok ? 'ok' : blank ? 'blank' : 'bad'} ${can ? 'can' : ''}" title="Answer: ${esc(shortAns(q, a))}${can ? ' (click to change the mark)' : ''}" ${can ? `data-sid="${r.id}" data-q="${q.id}"` : ''}>${ok ? '✓' : blank ? '·' : '✗'}</td>`;
+            if (!r.mine.has(q.id)) return '<td class="ms-c na" title="Not in this student\'s set"></td>';
+            const a = (r.s.answers || {})[q.id], st = stateOf(r.g, q);
+            const can = handMarked(q) && st !== 'blank';
+            return `<td class="ms-c ${st} ${can ? 'can' : ''}" title="Answer: ${esc(plainAnswer(q, a) || '-').slice(0, 200)}${can ? ' (click to mark)' : ''}" ${can ? `data-sid="${r.id}" data-q="${q.id}"` : ''}>${sym(st, r.g.got[q.id])}</td>`;
           }).join('')}</tr>`).join('')}
         </tbody>
-        <tfoot><tr><td class="ms-name muted">Got it right</td><td></td><td></td>${qRight.map(n => `<td class="ms-c pct">${rows.length ? Math.round(n / rows.length * 100) : 0}%</td>`).join('')}</tr></tfoot>
+        <tfoot><tr><td class="ms-name muted">Got it right</td>${multi ? '<td></td>' : ''}<td></td><td></td>${qRight.map(p => `<td class="ms-c pct">${p}</td>`).join('')}</tr></tfoot>
       </table></div>
-      <p class="small muted ms-key">✓ correct · ✗ wrong · <b>·</b> no answer. Hover a mark to see what they answered. Short answers: click a mark to switch it between right and wrong.</p>`;
+      <p class="small muted ms-key">✓ correct · ✗ wrong · a number = part marks · <b>?</b> waiting for you to mark · <b>·</b> no answer${multi ? ' · empty = not in their set' : ''}. Hover a mark to see the answer. Click a written answer, matching or fill-in mark to change it.</p>`;
   }
   $('#arcDetail').addEventListener('click', async e => {
     if (e.target.closest('#msBack')) { $('#arcDetail').classList.add('hidden'); $('#arcListWrap').classList.remove('hidden'); return; }
     if (e.target.closest('#msCsv')) return MS && MS.attendance ? attendanceCSV(MS.meta, MS.students, MS.control, MS.code) : marksheetCSV();
+    if (e.target.closest('#msMark')) { const p = msPending(msRows())[0]; if (p) openMark(p[0], p[1]); return; }
     const c = e.target.closest('.ms-c.can'); if (!c) return;
-    const sid = c.dataset.sid, q = c.dataset.q;
-    const now = EL.grade(MS.questions, MS.key, MS.students[sid].answers, MS.overrides[sid]).marks[q];
-    MS.overrides[sid] = Object.assign({}, MS.overrides[sid], { [q]: !now });
-    await B.update(`sessions/${MS.code}/overrides/${sid}`, { [q]: !now });
-    renderMarksheet();
+    openMark(c.dataset.sid, c.dataset.q);
   });
+
+  // ---------------- marking one answer (essays, short answers, or changing a part mark)
+  let MM = null;
+  function openMark(sid, qid) {
+    const q = MS.questions.find(x => x.id === qid), s = MS.students[sid]; if (!q || !s) return;
+    const n = MS.questions.indexOf(q) + 1, pts = Number(q.points) || 1;
+    const k = setOfIn(sid, MS.students, MS.control);
+    const g = EL.grade(qsFor(MS.questions, MS.sets, k), MS.key, s.answers, MS.overrides[sid]);
+    const own = (MS.overrides[sid] || {})[qid];
+    MM = { sid, qid, pts };
+    $('#mkmTag').textContent = `Question ${n} · ${EL.TYPE_LABEL[q.type]}`;
+    $('#mkmWho').textContent = s.name || '';
+    $('#mkmQ').innerHTML = esc(q.type === 'fill' ? String(q.text).replace(/\[\[\]\]/g, '____') : q.text).replace(/\n/g, '<br>') + (q.image ? `<img src="${q.image}" alt="">` : '');
+    $('#mkmA').innerHTML = fmtAnswer(q, (s.answers || {})[qid]);
+    $('#mkmKeyL').textContent = q.type === 'essay' ? 'Model answer' : 'Correct answer';
+    $('#mkmK').innerHTML = fmtKeyOf(q, MS.key[qid]);
+    const steps = pts <= 10 ? Array.from({ length: pts + 1 }, (_, i) => i) : [0, pts / 4, pts / 2, pts * 3 / 4, pts].map(v => Math.round(v * 2) / 2);
+    $('#mkmQuick').innerHTML = steps.map(v => `<button type="button" class="btn sm" data-v="${v}">${EL.fmtPts(v)}</button>`).join('');
+    $('#mkmPts').max = pts;
+    $('#mkmPts').value = own != null ? EL.fmtPts(g.got[qid]) : g.state[qid] === 'pend' ? '' : EL.fmtPts(g.got[qid]);
+    $('#mkmOf').textContent = '/ ' + pts;
+    const left = msPending(msRows()).length;
+    $('#mkmLeft').textContent = left ? left + ' still to mark' : 'All marked';
+    $('#markModal').classList.remove('hidden');
+    setTimeout(() => $('#mkmPts').focus(), 30);
+  }
+  $('#mkmQuick').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) { $('#mkmPts').value = b.dataset.v; $$('#mkmQuick .btn').forEach(x => x.classList.toggle('primary', x === b)); } });
+  async function saveMark() {
+    const raw = $('#mkmPts').value.trim();
+    if (raw === '') { EL.toast('Type the points first (or press one of the numbers).', 'amber'); return false; }
+    const v = Math.max(0, Math.min(MM.pts, Math.round(Number(raw) * 2) / 2 || 0));
+    MS.overrides[MM.sid] = Object.assign({}, MS.overrides[MM.sid], { [MM.qid]: v });
+    await B.update(`sessions/${MS.code}/overrides/${MM.sid}`, { [MM.qid]: v });
+    // keep the class average in Past results up to date
+    const rows = msRows();
+    B.update(`teachers/${S.uid}/history/${MS.code}`, { avg: rows.length ? Math.round(rows.reduce((a, r) => a + r.g.pct, 0) / rows.length) : 0, pending: msPending(rows).length });
+    renderMarksheet();
+    return true;
+  }
+  $('#mkmNo').addEventListener('click', () => $('#markModal').classList.add('hidden'));
+  $('#mkmSave').addEventListener('click', async () => { if (await saveMark()) $('#markModal').classList.add('hidden'); });
+  $('#mkmNext').addEventListener('click', async () => {
+    if (!(await saveMark())) return;
+    const next = msPending(msRows())[0];
+    if (next) openMark(next[0], next[1]);
+    else { $('#markModal').classList.add('hidden'); EL.toast('<b>Everything is marked.</b>', 'green', 3000); }
+  });
+  $('#mkmPts').addEventListener('keydown', e => { if (e.key === 'Enter') $('#mkmNext').click(); });
+
   function marksheetCSV() {
-    const m = MS, qs = m.questions;
-    const head = ['Name', 'Score', 'Total', 'Percent', 'Times left'].concat(qs.map((q, i) => 'Q' + (q.sheet ? q.n : i + 1)));
+    const m = MS, qs = m.questions, multi = m.sets && m.sets.length > 1;
+    const head = ['Name'].concat(multi ? ['Set'] : [], ['Score', 'Total', 'Percent', 'Still to mark', 'Times left'], qs.map((q, i) => 'Q' + (q.sheet ? q.n : i + 1)));
     const cell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-    const rows = Object.keys(m.students).filter(id => !(m.control[id] || {}).kicked).map(id => {
-      const s = m.students[id], g = EL.grade(qs, m.key, s.answers, m.overrides[id]);
-      return [s.name, g.score, g.total, g.pct, s.leaves || 0].concat(qs.map(q => g.marks[q.id] ? 1 : 0));
-    }).sort((x, y) => String(x[0]).localeCompare(String(y[0])));
+    const rows = msRows().map(r => [r.s.name].concat(multi ? [r.k == null ? '' : EL.setLetter(r.k)] : [], [r.g.score, r.g.total, r.g.pct, r.g.pending || '', r.s.leaves || 0],
+      qs.map(q => !r.mine.has(q.id) ? '' : r.g.state[q.id] === 'pend' ? '?' : r.g.got[q.id])));
     const csv = '﻿' + [head].concat(rows).map(r => r.map(cell).join(',')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     a.download = `${(m.meta.title || 'test').replace(/[^\w\- ]+/g, '').trim() || 'test'}_${m.code}_marks.csv`;
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
+
+  // ================================================================ make from paper (AI)
+  Maker.init({
+    busy,
+    editing: () => S.editing && !$('#edMain').classList.contains('hidden') ? S.editing : null,
+    use: async (qs, title, mode) => {
+      const make = q => Object.assign(newQ(q.type), q, { id: 'q' + EL.rid(6) });
+      if (mode === 'add' && S.editing) {
+        S.editing.questions.push(...qs.map(make));
+        go('tests'); edTab('qs'); markDirty(); renderEditor();
+      } else {
+        if (S.dirty && S.editing && !(await confirmBox('Discard unsaved changes?', 'The open test has changes that are not saved.', 'Discard', true))) return;
+        openEditor({ id: 't' + EL.rid(8), title, timeLimit: 0, shuffle: false, pick: 0, nsets: 1, questions: qs.map(make) });
+        S.dirty = true; infoLine();
+      }
+      EL.toast('<b>Check every question and answer.</b><br><span class="muted">Then choose how many each student answers and how many sets, and press Save.</span>', 'green', 9000);
+    }
+  });
 
   // ================================================================ presentation
   // Slides are pictures in sessions/<code>/questions/<i> (students may read that list, so no

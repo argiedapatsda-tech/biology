@@ -36,7 +36,21 @@ window.EL = (function () {
   }
   function clock(t) { const d = new Date(t); return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
 
-  const TYPE_LABEL = { mc: 'Multiple choice', tf: 'True or false', short: 'Short answer' };
+  const TYPE_LABEL = { mc: 'Multiple choice', tf: 'True or false', match: 'Matching', fill: 'Fill in the blanks', short: 'Short answer', essay: 'Essay' };
+  const TYPE_TH = { mc: 'ปรนัย', tf: 'ถูก / ผิด', match: 'จับคู่', fill: 'เติมคำ', short: 'ตอบสั้น', essay: 'อัตนัย' };
+  const TYPES = ['mc', 'tf', 'match', 'fill', 'short', 'essay'];
+  // fill-in and matching answers are several parts kept in one string (one database value per question)
+  const SEP = '␟';
+  const BLANK = '[[]]';
+  const parts = (a, n) => { const p = a == null || a === '' ? [] : String(a).split(SEP); while (p.length < (n || 0)) p.push(''); return p; };
+  function isAnswered(q, a) {
+    if (a == null || a === '') return false;
+    if (q && (q.type === 'fill' || q.type === 'match')) return String(a).split(SEP).some(x => String(x).trim() !== '');
+    return true;
+  }
+  // "The [[nucleus]] holds [[DNA|deoxyribonucleic acid]]" -> one list of accepted answers per blank
+  function blanksOf(text) { const out = []; String(text || '').replace(/\[\[(.*?)\]\]/g, (m, x) => { out.push(x.split('|').map(s => s.trim()).filter(Boolean)); return m; }); return out; }
+  const hideBlanks = text => String(text || '').replace(/\[\[(.*?)\]\]/g, BLANK);
 
   // The test paper (uploaded file) travels as the first item of the questions list.
   function splitPaper(raw) {
@@ -64,7 +78,7 @@ window.EL = (function () {
     let sheetShown = false;
     return paper + list.map((q, i) => {
       const a = answers[q.id];
-      const ans = a != null && a !== '';
+      const ans = isAnswered(q, a);
       if (q.sheet) {
         const head = sheetShown ? '' : sheetRows; sheetShown = true;
         const choices = q.type === 'tf' ? [['true', 'True'], ['false', 'False']] : asArray(q.options).map((o, k) => [k, LETTERS[k]]);
@@ -80,14 +94,25 @@ window.EL = (function () {
         body = '<div class="opts tf">' + [['true', 'True · จริง'], ['false', 'False · เท็จ']].map(([v, l]) =>
           `<button type="button" class="opt${String(a) === v ? ' sel' : ''}" data-q="${q.id}" data-v="${v}" ${ro}>
              <span class="opt-l">${v === 'true' ? 'T' : 'F'}</span><span class="opt-t">${l}</span></button>`).join('') + '</div>';
+      } else if (q.type === 'match') {
+        const L = asArray(q.left), R = asArray(q.right), cur = parts(a, L.length);
+        body = `<div class="match"><div class="m-left">` + L.map((l, k) =>
+          `<label class="m-row"><span class="m-n">${k + 1}</span><span class="m-t">${esc(l)}</span>
+            <select class="mselect" data-q="${q.id}" data-k="${k}" ${opts.readonly ? 'disabled tabindex="-1"' : ''}><option value="">–</option>${R.map((r, j) => `<option value="${j}" ${cur[k] !== '' && Number(cur[k]) === j ? 'selected' : ''}>${LETTERS[j] || j + 1}</option>`).join('')}</select></label>`).join('') +
+          `</div><div class="m-right">` + R.map((r, j) => `<div class="m-opt"><span class="opt-l">${LETTERS[j] || j + 1}</span><span>${esc(r)}</span></div>`).join('') + '</div></div>';
+      } else if (q.type === 'fill') {
+        const segs = String(q.text || '').split(BLANK), cur = parts(a, segs.length - 1);
+        body = `<div class="fill-text">` + segs.map((seg, k) => esc(seg).replace(/\n/g, '<br>') + (k < segs.length - 1
+          ? `<input class="blank" data-q="${q.id}" data-k="${k}" value="${esc(cur[k] || '')}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${k + 1}" ${opts.readonly ? 'readonly tabindex="-1"' : ''}>` : '')).join('') + '</div>';
       } else {
-        body = `<textarea class="short" data-q="${q.id}" rows="3" placeholder="Type your answer…" ${opts.readonly ? 'readonly tabindex="-1"' : ''}>${esc(a || '')}</textarea>`;
+        const essay = q.type === 'essay';
+        body = `<textarea class="short${essay ? ' essay' : ''}" data-q="${q.id}" rows="${essay ? 9 : 3}" placeholder="${essay ? 'Write your answer… · เขียนคำตอบ' : 'Type your answer…'}" ${opts.readonly ? 'readonly tabindex="-1"' : ''}>${esc(a || '')}</textarea>`;
       }
       return `<section class="qcard${ans ? ' answered' : ''}" data-qid="${q.id}">
         <div class="q-head"><span class="q-num">${i + 1}</span>
           <span class="q-type">${TYPE_LABEL[q.type] || ''}</span>
           <span class="q-pts">${q.points || 1} pt${(q.points || 1) > 1 ? 's' : ''}</span></div>
-        <div class="q-text">${esc(q.text).replace(/\n/g, '<br>')}</div>
+        ${q.type === 'fill' ? '<div class="q-text small muted">Fill in each blank · เติมคำในช่องว่าง</div>' : `<div class="q-text">${esc(q.text).replace(/\n/g, '<br>')}</div>`}
         ${q.image ? `<img class="q-img" src="${q.image}" alt="">` : ''}
         ${body}
       </section>`;
@@ -136,25 +161,134 @@ window.EL = (function () {
 
   function norm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').replace(/[.,!?;:'"]/g, '').trim(); }
 
-  // key: { qid: index | 'true'/'false' | [accepted strings] }   overrides: { qid: true/false } (teacher manual marking)
+  // key: { qid: index | 'true'/'false' | [accepted strings] | [[accepted] per blank] | [right index per left item] }
+  // overrides: { qid: true | false | points }  (the teacher's own marking)
+  // Fill-in and matching earn part marks. An essay nobody has marked yet is "pending" and counts 0.
   function grade(questions, key, answers, overrides) {
     answers = answers || {}; key = key || {}; overrides = overrides || {};
-    let score = 0, total = 0;
-    const marks = {};
+    let score = 0, total = 0, pending = 0;
+    const marks = {}, got = {}, state = {};
     for (const q of questions) {
       const pts = Number(q.points) || 1;
       total += pts;
-      const a = answers[q.id];
-      let ok = false;
-      if (overrides[q.id] != null) ok = !!overrides[q.id];
-      else if (a == null || a === '') ok = false;
-      else if (q.type === 'mc') ok = Number(a) === Number(key[q.id]);
-      else if (q.type === 'tf') ok = String(a) === String(key[q.id]);
-      else ok = asArray(key[q.id]).some(k => norm(k) && norm(k) === norm(a));
-      marks[q.id] = ok;
-      if (ok) score += pts;
+      const a = answers[q.id], ov = overrides[q.id];
+      let g = 0, st = 'bad';
+      if (ov != null && ov !== '') { g = ov === true ? pts : ov === false ? 0 : Math.max(0, Math.min(pts, Number(ov) || 0)); st = 'set'; }
+      else if (!isAnswered(q, a)) st = 'blank';
+      else if (q.type === 'mc') g = Number(a) === Number(key[q.id]) ? pts : 0;
+      else if (q.type === 'tf') g = String(a) === String(key[q.id]) ? pts : 0;
+      else if (q.type === 'essay') { st = 'pend'; pending++; }
+      else if (q.type === 'fill') {
+        const k = asArray(key[q.id]), p = parts(a, k.length);
+        const n = k.filter((acc, i) => asArray(acc).some(x => norm(x) && norm(x) === norm(p[i]))).length;
+        g = k.length ? pts * n / k.length : 0;
+      } else if (q.type === 'match') {
+        const k = asArray(key[q.id]), p = parts(a, k.length);
+        const n = k.filter((r, i) => p[i] !== '' && Number(p[i]) === Number(r)).length;
+        g = k.length ? pts * n / k.length : 0;
+      } else g = asArray(key[q.id]).some(k => norm(k) && norm(k) === norm(a)) ? pts : 0;
+      g = Math.round(g * 100) / 100;
+      if (st !== 'blank' && st !== 'pend') st = g >= pts - 1e-9 ? 'ok' : g > 0 ? 'part' : 'bad';
+      marks[q.id] = g >= pts - 1e-9; got[q.id] = g; state[q.id] = st;
+      score += g;
     }
-    return { score, total, pct: total ? Math.round(score / total * 100) : 0, marks };
+    score = Math.round(score * 100) / 100;
+    return { score, total, pct: total ? Math.round(score / total * 100) : 0, marks, got, state, pending };
+  }
+  const fmtPts = n => String(Math.round((Number(n) || 0) * 100) / 100);
+
+  // ---------------- sets: each set is its own random pick from the question pool.
+  // Questions stay grouped by type (all multiple choice first, …) so a printed paper reads in parts.
+  function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+  function makeSets(pool, nSets, pick) {
+    const n = Math.max(1, Math.min(8, Number(nSets) || 1));
+    const want = pick > 0 && pick < pool.length ? pick : pool.length;
+    const groups = {}; pool.forEach(q => { (groups[q.type] = groups[q.type] || []).push(q.id); });
+    const types = Object.keys(groups).sort((a, b) => TYPES.indexOf(a) - TYPES.indexOf(b));
+    // how many of each type: in proportion to the pool (largest remainder)
+    const share = types.map(t => ({ t, x: want * groups[t].length / pool.length }));
+    share.forEach(s => { s.k = Math.floor(s.x); });
+    let left = want - share.reduce((a, s) => a + s.k, 0);
+    share.slice().sort((a, b) => (b.x - b.k) - (a.x - a.k)).forEach(s => { if (left > 0 && s.k < groups[s.t].length) { s.k++; left--; } });
+    const sets = [];
+    for (let i = 0; i < n; i++) {
+      const ids = [];
+      share.forEach(s => {
+        const g = groups[s.t];
+        // Set A of a full test keeps your own order; every other set is mixed up
+        ids.push(...(i === 0 && want === pool.length ? g : shuffle(g)).slice(0, s.k));
+      });
+      sets.push({ n: LETTERS[i] || String(i + 1), ids });
+    }
+    return sets;
+  }
+  const setLetter = i => LETTERS[i] || String(Number(i) + 1);
+
+  // ---------------- reading an AI reply (Gemini, or Claude's answer pasted in) into editor questions
+  function readJSON(text) {
+    text = String(text || '').trim();
+    const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i); if (fence) text = fence[1].trim();
+    const tryParse = t => { try { return JSON.parse(t); } catch (e) { return undefined; } };
+    const cut = (t, o, c) => { const a = t.indexOf(o), b = t.lastIndexOf(c); return a >= 0 && b > a ? t.slice(a, b + 1) : null; };
+    let v = tryParse(text);
+    for (const [o, c] of [['{', '}'], ['[', ']']]) {
+      if (v !== undefined) break;
+      const t = cut(text, o, c); if (!t) continue;
+      v = tryParse(t);
+      // common slips: a comma before ] or }, curly quotes
+      if (v === undefined) v = tryParse(t.replace(/,\s*([\]}])/g, '$1').replace(/[“”]/g, '"'));
+    }
+    if (v === undefined || v === null || typeof v !== 'object') throw new Error("Couldn't read that reply. Copy Claude's whole answer (it starts with { ) and paste it again.");
+    return Array.isArray(v) ? { questions: v } : v;
+  }
+  function letterIndex(x, n) {
+    if (typeof x === 'number') return x >= 1 && x <= n ? x - 1 : x === 0 ? 0 : -1;
+    const s = String(x == null ? '' : x).trim(); if (!s) return -1;
+    const t = 'กขคงจฉ'.indexOf(s[0]);
+    if (t >= 0 && (s.length === 1 || /^[กขคงจฉ][).:\s]/.test(s))) return t;
+    if (/^[a-f]([).:\s]|$)/i.test(s)) return 'abcdef'.indexOf(s[0].toLowerCase());
+    const d = parseInt(s, 10); return d >= 1 && d <= n ? d - 1 : -1;
+  }
+  const yes = v => v === true || /^(true|t|จริง|ถูก|yes|correct)$/i.test(String(v).trim());
+  function fromAI(list) {
+    const out = [];
+    for (const r of asArray(list)) {
+      if (!r || typeof r !== 'object') continue;
+      const type = String(r.type || '').toLowerCase().replace(/[^a-z]/g, '');
+      const T = { mc: 'mc', multiplechoice: 'mc', choice: 'mc', tf: 'tf', truefalse: 'tf', match: 'match', matching: 'match', fill: 'fill', fillintheblanks: 'fill', fillintheblank: 'fill', blanks: 'fill', short: 'short', shortanswer: 'short', essay: 'essay', long: 'essay' }[type];
+      const text = String(r.q || r.question || r.text || '').trim();
+      if (!T) continue;
+      const q = { type: T, text, points: Math.max(1, Math.round(Number(r.points) || (T === 'essay' ? 5 : 1))) };
+      if (r.explain || r.explanation) q.explain = String(r.explain || r.explanation);
+      if (r.picture && typeof r.picture === 'object') q.src = r.picture;
+      if (T === 'mc') {
+        q.options = asArray(r.choices || r.options).map(o => String(o).replace(/^\s*\(?(?:[A-Fa-f]|[กขคงจ])[.)]\s+/, '').trim()).filter(Boolean).slice(0, 6);
+        if (q.options.length < 2) continue;
+        let k = letterIndex(r.answer, q.options.length);
+        if (k < 0) k = q.options.findIndex(o => norm(o) === norm(r.answer));
+        if (k < 0) { k = 0; q.needKey = true; }
+        q.answer = k;
+      } else if (T === 'tf') q.answer = yes(r.answer) ? 'true' : 'false';
+      else if (T === 'match') {
+        q.pairs = asArray(r.pairs).map(p => Array.isArray(p) ? [String(p[0] || ''), String(p[1] || '')] : [String(p.left || p.a || ''), String(p.right || p.b || '')]).filter(p => p[0] && p[1]).slice(0, 10);
+        if (q.pairs.length < 2) continue;
+        q.extra = asArray(r.extra).map(String).filter(Boolean).join(' | ');
+        if (!q.text) q.text = 'Match each item on the left with the correct answer on the right.';
+      } else if (T === 'fill') {
+        if (!blanksOf(text).length) {
+          const ans = asArray(r.answers || r.answer).map(String).filter(Boolean);
+          if (!/_{3,}/.test(text) || !ans.length) continue;
+          let k = 0; q.text = text.replace(/_{3,}/g, () => '[[' + (ans[k++] || '?') + ']]');
+        }
+      } else if (T === 'short') q.answer = asArray(r.answers || r.answer).map(String).filter(Boolean).join(' | ');
+      else if (T === 'essay') q.model = String(r.model || r.modelAnswer || r.answer || '');
+      if (!q.text) continue;
+      // part marks: one point per pair / per blank unless the AI gave points
+      if (!Number(r.points) && T === 'match') q.points = q.pairs.length;
+      if (!Number(r.points) && T === 'fill') q.points = Math.max(1, blanksOf(q.text).length);
+      out.push(q);
+    }
+    return out;
   }
 
   // -------- synthesized UI sounds (no files needed) --------
@@ -279,11 +413,13 @@ window.EL = (function () {
     mute: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4zM16 9.5l5 5M21 9.5l-5 5"/>',
     out: '<path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M15 8l4 4-4 4M9 12h10"/>',
     present: '<rect x="3" y="4" width="18" height="12" rx="1.8"/><path d="M12 16v4M8.5 20h7M7.5 12l3-3 2.5 2 3.5-4"/>',
+    spark: '<path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
+    print: '<path d="M7 9V3.5h10V9"/><rect x="3.5" y="9" width="17" height="8" rx="1.8"/><path d="M7 14h10v6.5H7z"/>',
     laser: '<circle cx="17.5" cy="6.5" r="2.2"/><path d="M4 20l9.5-9.5"/><path d="M17.5 1.8v1.4M17.5 9.8v1.4M22.2 6.5h-1.4M14.2 6.5h-1.4"/>'
   };
   const icon = (n, cls) => `<svg class="i${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
   // fills <i data-icon="name"></i> placeholders in static HTML
   function paintIcons(root) { $$('[data-icon]', root).forEach(el => { el.outerHTML = icon(el.dataset.icon, el.dataset.cls); }); }
 
-  return { $, $$, esc, rid, makeCode, icon, paintIcons, splitPaper, loadImage, vault, asArray, seededOrder, fmtTime, fmtDur, clock, renderTest, grade, norm, sfx, scramble, toast, detectBrowser, LETTERS };
+  return { $, $$, esc, rid, makeCode, icon, paintIcons, splitPaper, loadImage, vault, asArray, seededOrder, fmtTime, fmtDur, clock, renderTest, grade, norm, sfx, scramble, toast, detectBrowser, LETTERS, TYPES, TYPE_LABEL, TYPE_TH, SEP, BLANK, parts, isAnswered, blanksOf, hideBlanks, fmtPts, shuffle, makeSets, setLetter, readJSON, fromAI };
 })();

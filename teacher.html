@@ -8,7 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2302060a' stroke='%2346f08f' stroke-width='2.5'/%3E%3Cellipse cx='16' cy='16' rx='5' ry='4' fill='%236a97ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/app.css?v=20261015c">
+<link rel="stylesheet" href="assets/app.css?v=20261015d">
 </head>
 <body>
 
@@ -39,6 +39,7 @@
     <nav class="nav" id="nav">
       <button data-v="live" class="on" title="Live class"><i data-icon="live"></i><span>Live class</span></button>
       <button data-v="tests" title="Tests"><i data-icon="tests"></i><span>Tests</span></button>
+      <button data-v="make" title="Make a test from a paper with AI"><i data-icon="spark"></i><span>Make from paper</span></button>
       <button data-v="present" title="Present slides"><i data-icon="present"></i><span>Present</span></button>
       <button data-v="archive" title="Past results"><i data-icon="archive"></i><span>Past results</span></button>
       <button data-v="setup" title="Setup"><i data-icon="setup"></i><span>Setup</span></button>
@@ -171,17 +172,27 @@
               <input class="input ed-title" id="edTitle" placeholder="Test title, e.g. Cell Biology Quiz">
               <div class="ed-meta">
                 <label class="field"><span>Time limit (minutes, 0 = none)</span><input class="input" id="edTime" type="number" min="0" max="300" value="0"></label>
+                <label class="field"><span>Each student answers</span><input class="input" id="edPick" type="number" min="0" max="500" value="0" title="0 = every question"></label>
+                <label class="field"><span>Sets (A, B, C …)</span><select class="input" id="edSets"><option value="1">1 · everyone the same</option><option value="2">2 · A B</option><option value="3">3 · A B C</option><option value="4">4 · A B C D</option><option value="5">5 · A – E</option><option value="6">6 · A – F</option></select></label>
                 <label class="check"><input type="checkbox" id="edShuffle"><span>Shuffle question order for each student</span></label>
               </div>
+              <div class="pool-note small" id="edPool"></div>
               <div id="edPaper"></div>
             </div>
+            <div class="ed-tabs" id="edTabs"><button data-et="qs" class="on" type="button">Questions</button><button data-et="sets" type="button">Sets &amp; printing</button></div>
+            <div id="edSetsPane" class="hidden"></div>
+            <div id="edQsPane">
             <div id="edQs"></div>
             <div class="ed-add">
               <span class="muted small">Add a question</span>
               <button class="btn sm" data-add="mc">+ Multiple choice</button>
               <button class="btn sm" data-add="tf">+ True / False</button>
+              <button class="btn sm" data-add="match">+ Matching</button>
+              <button class="btn sm" data-add="fill">+ Fill in the blanks</button>
               <button class="btn sm" data-add="short">+ Short answer</button>
+              <button class="btn sm" data-add="essay">+ Essay</button>
               <button class="btn sm" id="addSheet">+ Answer sheet rows</button>
+            </div>
             </div>
             <div class="ed-foot">
               <span class="small muted" id="edInfo"></span>
@@ -194,6 +205,49 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <!-- ---------- MAKE FROM PAPER ---------- -->
+    <section class="view hidden" id="v-make">
+      <h2 class="view-title">Make from paper</h2>
+      <p class="muted mk-lead">Upload a worksheet, textbook pages or an old test. AI writes new questions with the answers. Nothing reaches students until you check it, edit it and press Start.</p>
+      <div class="mk-grid">
+        <div class="panel pr-card">
+          <span class="label">1 · Your paper</span>
+          <label class="btn primary"><i data-icon="download" data-cls="up"></i>Choose a file<input type="file" id="mkFile" accept=".pdf,.docx,image/*" multiple hidden></label>
+          <p class="small muted" style="margin:0">One PDF, one Word (.docx) file, or several photos of the pages.</p>
+          <div id="mkSrc" class="mk-src muted small">Nothing chosen yet.</div>
+        </div>
+        <div class="panel pr-card">
+          <span class="label">2 · What to make</span>
+          <div class="mk-types" id="mkTypes"></div>
+          <div class="small muted" id="mkTotal"></div>
+          <div class="mk-two">
+            <label class="field"><span>Language</span><select class="input" id="mkLang"><option value="same">Same as paper</option><option value="th">Thai</option><option value="en">English</option><option value="both">Thai + English</option></select></label>
+            <label class="field"><span>Level</span><select class="input" id="mkLevel"><option value="easy">Easy · check understanding</option><option value="mixed" selected>Mixed</option><option value="hard">Hard · TCAS / A-Level style</option></select></label>
+          </div>
+          <label class="field"><span>Anything else? (optional)</span><textarea class="input" id="mkNotes" rows="2" placeholder="e.g. only chapter 3 · avoid pages 5-6 · use the diagrams"></textarea></label>
+        </div>
+        <div class="panel pr-card mk-go">
+          <span class="label">3 · Make the questions</span>
+          <div class="mk-way">
+            <div class="mk-way-h"><b>Free Google Gemini</b><span class="pill live">One click</span></div>
+            <div id="mkKeyBox"></div>
+            <button class="btn primary lg" id="mkGemini" type="button"><i data-icon="spark"></i>Make questions</button>
+          </div>
+          <div class="mk-way">
+            <div class="mk-way-h"><b>Or use your Claude Pro</b><span class="small muted">copy and paste</span></div>
+            <ol class="pr-steps small">
+              <li><button class="btn sm" id="mkCopy" type="button">Copy the instructions</button></li>
+              <li>Open <a href="https://claude.ai/new" target="_blank" rel="noopener">claude.ai</a>, attach the same file, paste, and send.</li>
+              <li>Copy Claude's whole reply and paste it here:</li>
+            </ol>
+            <textarea class="input mk-paste" id="mkPaste" rows="4" placeholder="Paste Claude's reply here (it starts with { )"></textarea>
+            <button class="btn" id="mkRead" type="button">Use Claude's reply</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel mk-result hidden" id="mkResult"></div>
     </section>
 
     <!-- ---------- PRESENT ---------- -->
@@ -295,17 +349,37 @@
   <div class="modal-actions"><button class="btn" id="smNo">Cancel</button><button class="btn primary" id="smYes">Add rows</button></div>
 </div></div>
 
+<!-- mark one written answer -->
+<div id="markModal" class="modal hidden"><div class="modal-box mark-box">
+  <div class="row-between"><span class="label" id="mkmTag">Mark</span><span class="small muted" id="mkmLeft"></span></div>
+  <h3 id="mkmWho"></h3>
+  <div class="mark-q" id="mkmQ"></div>
+  <div class="mark-cols"><div><span class="label">Their answer</span><div class="mark-a" id="mkmA"></div></div><div><span class="label" id="mkmKeyL">Model answer</span><div class="mark-k" id="mkmK"></div></div></div>
+  <div class="mark-pts"><span>Points</span><div class="mark-quick" id="mkmQuick"></div><input class="input" id="mkmPts" type="number" min="0" step="0.5"><b id="mkmOf"></b></div>
+  <div class="modal-actions"><button class="btn" id="mkmNo">Close</button><button class="btn" id="mkmSave">Save</button><button class="btn primary" id="mkmNext">Save &amp; next</button></div>
+</div></div>
+
+<!-- pick a picture area from a page of the paper -->
+<div id="cropModal" class="modal hidden"><div class="modal-box crop-box">
+  <div class="row-between"><span class="label">Picture from the paper</span><span class="small muted">Drag over the picture you want</span></div>
+  <div class="crop-pages" id="cropPages"></div>
+  <div class="crop-stage" id="cropStage"><img id="cropImg" alt=""><div class="crop-rect hidden" id="cropRect"></div></div>
+  <div class="modal-actions"><button class="btn" id="cropNo">Cancel</button><button class="btn primary" id="cropYes">Use this picture</button></div>
+</div></div>
+
 <div id="busy" class="modal hidden"><div class="modal-box" style="text-align:center;display:grid;gap:12px;justify-items:center"><div class="spinner"></div><b id="busyTxt">Reading the file…</b></div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="assets/config.js?v=20261015c"></script>
-<script src="assets/backend.js?v=20261015c"></script>
-<script src="assets/common.js?v=20261015c"></script>
-<script src="assets/bio-bg.js?v=20261015c"></script>
-<script src="assets/importer.js?v=20261015c"></script>
-<script src="assets/teacher.js?v=20261015c"></script>
+<script src="assets/config.js?v=20261015d"></script>
+<script src="assets/backend.js?v=20261015d"></script>
+<script src="assets/common.js?v=20261015d"></script>
+<script src="assets/bio-bg.js?v=20261015d"></script>
+<script src="assets/importer.js?v=20261015d"></script>
+<script src="assets/print.js?v=20261015d"></script>
+<script src="assets/maker.js?v=20261015d"></script>
+<script src="assets/teacher.js?v=20261015d"></script>
 </body>
 </html>
