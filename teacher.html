@@ -3,17 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#f4f8f3">
+<meta name="theme-color" content="#03070c">
 <title>Biology · Teacher</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2302060a' stroke='%2346f08f' stroke-width='2.5'/%3E%3Cellipse cx='16' cy='16' rx='5' ry='4' fill='%236a97ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/app.css?v=20261015h">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Orbitron:wght@600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css?v=20261015i">
 </head>
 <body data-holo="teacher">
 
 <!-- ================= SIGN IN ================= -->
 <section id="auth" class="auth">
+  <h1 class="glow-title">Biology</h1>
   <div class="auth-card panel">
     <a class="brand" href="index.html"><span class="brand-mark"><i data-icon="leaf"></i></span><span>Biology</span></a>
     <h1>Teacher sign in</h1>
@@ -55,10 +56,16 @@
     <section class="view" id="v-live">
       <div class="empty-live hidden" id="liveEmpty">
         <div class="empty-box panel" id="emptyIdle">
-          <span class="label">Nothing running</span>
-          <h2>Start a test or present slides</h2>
-          <p>Make a test in <b>Tests</b> and press <b>Start with class</b>, or upload slides in <b>Present</b>. Students join with a QR code.</p>
-          <button class="btn primary" id="goTests">Go to tests</button>
+          <h1 class="glow-title">Biology</h1>
+          <span class="box-title">Test creation dashboard</span>
+          <div class="tiles dash-tiles">
+            <button class="tile hot" type="button" data-go="new"><img src="assets/cosmos/i_cell.png" alt=""><span>Create new test<small>Type questions or upload a file</small></span><img src="assets/cosmos/i_dna.png" alt=""></button>
+            <button class="tile" type="button" data-go="make"><img src="assets/cosmos/i_dna.png" alt=""><span>Make from paper<small>AI writes questions from your file</small></span><img src="assets/cosmos/i_protein.png" alt=""></button>
+            <button class="tile" type="button" data-go="tests"><img src="assets/cosmos/i_protein.png" alt=""><span>Question bank<small>Your saved tests, sets and printing</small></span><img src="assets/cosmos/i_neuron.png" alt=""></button>
+            <button class="tile" type="button" data-go="present"><img src="assets/cosmos/i_neuron.png" alt=""><span>Present slides<small>Share PowerPoint to every iPad</small></span><img src="assets/cosmos/i_virus.png" alt=""></button>
+          </div>
+          <p class="small">Students join with a QR code. Past tests and mark sheets are in <b>Past results</b>.</p>
+          <button class="btn primary hidden" id="goTests">Go to tests</button>
         </div>
         <div class="empty-box panel hidden" id="emptyEnded">
           <span class="label" id="endLabel">Test finished</span>
@@ -375,12 +382,13 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="assets/config.js?v=20261015h"></script>
-<script src="assets/backend.js?v=20261015h"></script>
-<script src="assets/common.js?v=20261015h"></script>
-<script src="assets/importer.js?v=20261015h"></script>
-<script src="assets/print.js?v=20261015h"></script>
-<script src="assets/maker.js?v=20261015h"></script>
-<script src="assets/teacher.js?v=20261015h"></script>
+<script src="assets/config.js?v=20261015i"></script>
+<script src="assets/backend.js?v=20261015i"></script>
+<script src="assets/common.js?v=20261015i"></script>
+<script src="assets/cosmos.js?v=20261015i"></script>
+<script src="assets/importer.js?v=20261015i"></script>
+<script src="assets/print.js?v=20261015i"></script>
+<script src="assets/maker.js?v=20261015i"></script>
+<script src="assets/teacher.js?v=20261015i"></script>
 </body>
 </html>

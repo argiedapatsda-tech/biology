@@ -92,6 +92,11 @@
     go(b.dataset.v);
   });
   $('#goTests').addEventListener('click', () => go('tests'));
+  // dashboard tiles
+  $('#emptyIdle').addEventListener('click', e => {
+    const t = e.target.closest('[data-go]'); if (!t) return;
+    if (t.dataset.go === 'new') { go('tests'); $('#newTest').click(); } else go(t.dataset.go);
+  });
   $('#soundBtn').addEventListener('click', () => { S.sound = !S.sound; $('#soundBtn').textContent = S.sound ? 'Sound on' : 'Sound off'; sfx.unlock(); });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;

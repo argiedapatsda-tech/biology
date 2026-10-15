@@ -423,28 +423,5 @@ window.EL = (function () {
 
   return { $, $$, esc, rid, makeCode, icon, paintIcons, splitPaper, loadImage, vault, asArray, seededOrder, fmtTime, fmtDur, clock, renderTest, grade, norm, sfx, scramble, toast, detectBrowser, LETTERS, TYPES, TYPE_LABEL, TYPE_TH, SEP, BLANK, parts, isAnswered, blanksOf, hideBlanks, fmtPts, shuffle, makeSets, setLetter, readJSON, fromAI };
 })();
-// Living background: real microscope footage of Volvox (a green colony of thousands of cells),
-// Alexander Klepnev, CC BY 4.0, Wikimedia Commons. setLevel(1) = vivid, lower = calmer (during a test).
-window.BioBG = (function () {
-  let veil = null, vid = null;
-  function start(opts) {
-    if (vid) return setLevel(opts && opts.level);
-    const base = (document.querySelector('script[src*="common.js"]').getAttribute('src') || '').replace(/common\.js.*$/, '');
-    const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    vid = document.createElement('video');
-    vid.className = 'bgvid'; vid.muted = true; vid.loop = true; vid.playsInline = true; vid.setAttribute('playsinline', ''); vid.setAttribute('aria-hidden', 'true');
-    vid.poster = base + 'video/volvox.jpg';
-    if (!still) { vid.autoplay = true; vid.innerHTML = `<source src="${base}video/volvox.webm" type="video/webm"><source src="${base}video/volvox.mp4" type="video/mp4">`; }
-    veil = document.createElement('div'); veil.className = 'bgveil';
-    document.body.prepend(veil); document.body.prepend(vid);
-    if (!still) { const p = vid.play(); if (p && p.catch) p.catch(() => {}); }
-    // iPads may block autoplay until the first touch
-    document.addEventListener('pointerdown', () => { if (vid.paused && !still) vid.play().catch(() => {}); }, { once: true });
-    setLevel(opts && opts.level != null ? opts.level : 1);
-  }
-  function setLevel(l) {
-    l = l == null ? 1 : Number(l);
-    document.body.classList.toggle('bg-calm', l < 0.6);
-  }
-  return { start, setLevel };
-})();
+// the animated background lives in cosmos.js; this stand-in only matters if that file is missing
+window.BioBG = window.BioBG || { start() {}, setLevel() {} };
