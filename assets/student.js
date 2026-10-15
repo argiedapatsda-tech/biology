@@ -18,6 +18,19 @@
   const wait = ms => new Promise(r => setTimeout(r, ms));
   function event(type, extra) { try { B.push(`sessions/${code}/events`, Object.assign({ sid: uid, name, type, at: B.now() }, extra || {})); } catch (e) { console.error(e); } }
 
+  // internet state, so the teacher can tell "pressed Home" apart from "the Wi-Fi dropped".
+  // A 'left' event sent while connected reaches the teacher straight away, which is itself proof the internet worked.
+  let netOn = false, netOnce = false, netDownAt = 0, lastShown = Date.now();
+  B.onConnected(on => {
+    if (on) {
+      if (netDownAt && code && uid && Date.now() - netDownAt >= 3000) event('net', { ms: Date.now() - netDownAt });
+      netOnce = true; netDownAt = 0;
+    } else if (netOnce && !netDownAt && !document.hidden && Date.now() - lastShown > 5000) netDownAt = Date.now();   // a socket waking up after Home isn't a Wi-Fi drop
+    netOn = on;
+  });
+  const netAtLeave = () => netOn ? true : (Date.now() - lastShown < 10000 ? null : false);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) lastShown = Date.now(); });
+
   // ---------------------------------------------------------------- join screen
   function boot() {
     EL.vault($('#vJoin'), 'idle', false);
@@ -110,13 +123,14 @@
       event('join');
     }
     B.onConnected(on => { if (on) { B.onDisconnectUpdate(P(), { online: false }); B.update(P(), { online: true }); } });
-    B.on(`sessions/${code}/control/${uid}`, c => { control = c || {}; if (control.kicked) return removed(); evalLock(); });
+    B.on(`sessions/${code}/control/${uid}`, c => { control = c || {}; if (control.kicked) return removed(); evalLock(); onCamOffer(control.cam); });
     B.on(`sessions/${code}/results/${uid}`, r => showResult(r));
     B.on(`sessions/${code}/meta`, m => onMeta(m));
     B.on(P() + '/chat', c => onChat(c || {}));
-    if (submitted) return finish();
+    if (submitted) { finish(); return camOn(); }
     paintWait();
     show('wait');
+    camOn();
   }
 
   function paintWait() {
@@ -148,6 +162,7 @@
   // ---------------------------------------------------------------- test
   function startTest() {
     show('test');
+    keepAwake();   // stop the screen sleeping, so "my iPad went to sleep" isn't a reason to leave
     BioBG.setLevel(.4);   // calmer while answering
     $('#tTitle').textContent = meta.title || 'Test';
     $('#tWho').textContent = name + ' · code ' + code;
@@ -228,13 +243,15 @@
       return;
     }
     if (!watched() || away) return;
+    if (camAsking && !document.hidden) return;   // the "Allow camera?" question takes focus; that isn't leaving
     away = true; awayStart = Date.now();
     lockSeq++; leaves++;
     evalLock();                      // lock locally first; the network may be frozen while away
     B.update(P(), { away: true, lockSeq, leaves, lastLeave: B.now() });
-    event('left', { reason });
+    event('left', { reason, net: netAtLeave() });
   }
   function comeBack() {
+    if (camWanted() && !(camStream && camStream.getVideoTracks().some(t => t.readyState === 'live'))) setTimeout(camOn, 300);
     if (afterAway) { afterAway = false; B.update(P(), { awayAfter: false }); event('backafter'); return; }
     if (!away) return;
     away = false;
@@ -352,6 +369,7 @@
     shutGames(true);
     if (closed) return;
     closed = true;
+    camStop();
     $('#doneTitle').textContent = 'Test closed';
     $('#doneLead').innerHTML = 'Your teacher has closed the test. You can close this page now.<span class="th">ครูปิดการสอบแล้ว ปิดหน้านี้ได้เลย</span>';
     $('#stayNote').classList.add('hidden');
@@ -368,7 +386,7 @@
     }
   }
   function removed() {
-    clearInterval(timerInt); submitted = true;
+    clearInterval(timerInt); submitted = true; closed = true; camStop();
     $('#lock').classList.add('hidden'); document.body.classList.remove('locked');
     $('#msgTitle').textContent = 'Removed from the test';
     $('#msgBody').textContent = 'Your teacher removed you from this test. · ครูได้นำคุณออกจากการสอบนี้';
@@ -532,14 +550,97 @@
   // keep the iPad screen from dimming while the student watches
   let wakeLock = null;
   function keepAwake() {
-    if (!navigator.wakeLock || wakeLock || stage !== 'present') return;
+    if (!navigator.wakeLock || wakeLock || !watched()) return;
     navigator.wakeLock.request('screen').then(l => { wakeLock = l; l.addEventListener('release', () => { wakeLock = null; }); }).catch(() => {});
   }
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden || stage !== 'present') return;
+    if (document.hidden || !watched()) return;
     keepAwake();
+    if (stage !== 'present') return;
     const v = $('#pVid'); if (v.srcObject && v.paused) v.play().catch(() => {});
   });
+
+  // ---------------------------------------------------------------- camera: the teacher can open it at any time
+  // The camera is turned on once, in the waiting room (that is when the iPad asks "Allow camera?"), and kept
+  // for the whole test, so the question never pops up mid-test. Nothing is sent until the teacher opens it:
+  // the teacher offers (control/<sid>/cam), this iPad answers (students/<sid>/camAns). Nothing is recorded.
+  let camStream = null, camPc = null, camOfferId = null, camAsking = false, camState = '';
+  const camWanted = () => !isPres() && code && !closed && (stage === 'wait' || stage === 'count' || stage === 'test' || stage === 'done');
+  function camPaint() {
+    const row = $('#camRow'); if (!row) return;
+    const on = camState === 'on';
+    row.classList.toggle('warn', camState === 'denied' || camState === 'none');
+    $('#camTxt').textContent = on ? 'is on. Your teacher may look at it at any time during the test. Nothing is recorded.'
+      : camState === 'denied' ? 'is blocked. Tap the button, then choose Allow. Your teacher can see that it is off.'
+      : camState === 'none' ? "can't start on this device. Tell your teacher." : 'is turning on…';
+    $('#camTh').textContent = on ? 'กล้องเปิดอยู่ ครูอาจดูภาพสดได้ทุกเมื่อระหว่างสอบ ไม่มีการบันทึกวิดีโอ'
+      : camState === 'denied' ? 'กล้องถูกปิดกั้น แตะปุ่มแล้วเลือก "อนุญาต" ครูจะเห็นว่ากล้องปิดอยู่'
+      : camState === 'none' ? 'เปิดกล้องบนอุปกรณ์นี้ไม่ได้ กรุณาแจ้งครู' : 'กำลังเปิดกล้อง…';
+    $('#camBtn').classList.toggle('hidden', on || !camState || camAsking);
+    $('#camSelf').classList.toggle('hidden', !on);
+    const t = $('#tCam');
+    t.classList.toggle('hidden', !camState);
+    t.classList.toggle('warn', !on);
+    t.innerHTML = EL.icon('cam') + (on ? 'Camera on · your teacher may look at any time · กล้องเปิดอยู่' : 'Camera off · your teacher can see this · กล้องปิดอยู่');
+  }
+  function setCam(st) {
+    if (camState === st) return;
+    camState = st; camPaint();
+    if (code && uid) B.update(P(), { cam: st, camReady: st === 'on' ? B.now() : null }).catch(e => console.error(e));
+  }
+  async function camOn() {
+    if (!camWanted() || camAsking) return;
+    const live = camStream && camStream.getVideoTracks().some(t => t.readyState === 'live');
+    if (live) return setCam('on');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return setCam('none');
+    camAsking = true; camPaint();
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15, max: 15 } } });
+      if (!camWanted()) { s.getTracks().forEach(t => t.stop()); return; }
+      camStream = s;
+      s.getVideoTracks().forEach(t => t.addEventListener('ended', () => { if (camStream === s) { camStream = null; setCam('off'); setTimeout(camOn, 1500); } }));
+      const v = $('#camSelf'); v.srcObject = s; v.play().catch(() => {});
+      camState = ''; setCam('on');
+      onCamOffer(control.cam, true);   // the teacher may already be waiting
+    } catch (e) {
+      console.warn('[cam]', e);
+      setCam(e && (e.name === 'NotAllowedError' || e.name === 'SecurityError') ? 'denied' : 'none');
+    } finally { camAsking = false; camPaint(); }
+  }
+  $('#camBtn').addEventListener('click', camOn);
+  function camClose() {
+    if (camPc) { try { camPc.close(); } catch (e) {} camPc = null; }
+  }
+  function camStop() {
+    camClose();
+    if (camStream) camStream.getTracks().forEach(t => t.stop());
+    camStream = null; $('#camSelf').srcObject = null;
+    if (camState) { camState = 'off'; camPaint(); if (code && uid) B.update(P(), { cam: 'off', camReady: null }).catch(() => {}); }
+    $('#tCam').classList.add('hidden');
+  }
+  async function onCamOffer(o, again) {
+    if (!o || !o.offer) { camOfferId = null; return camClose(); }
+    if (!camStream || (o.id === camOfferId && !again)) return;
+    if (o.id === camOfferId && camPc && camPc.connectionState !== 'failed') return;
+    camOfferId = o.id;
+    camClose();
+    const pc = camPc = new RTCPeerConnection({ iceServers: ICE });
+    try {
+      await pc.setRemoteDescription({ type: 'offer', sdp: o.offer });
+      const tx = pc.getTransceivers()[0], tr = camStream.getVideoTracks()[0];
+      if (tx) { tx.direction = 'sendonly'; await tx.sender.replaceTrack(tr); tx.sender.setStreams && tx.sender.setStreams(camStream); }
+      else pc.addTrack(tr, camStream);
+      await pc.setLocalDescription(await pc.createAnswer());
+      try {
+        const sd = (tx || pc.getSenders()[0]).sender || pc.getSenders()[0], prm = sd.getParameters();
+        if (prm.encodings && prm.encodings.length) { prm.encodings[0].maxBitrate = 600e3; prm.encodings[0].maxFramerate = 15; await sd.setParameters(prm); }
+      } catch (e) {}
+      await gathered(pc, 2500);
+      if (pc !== camPc) return;
+      await B.update(P(), { camAns: { id: o.id, sdp: pc.localDescription.sdp } });
+    } catch (e) { console.error('[cam]', e); }
+  }
+  window.__cam = () => ({ state: camState, pc: camPc, stream: camStream });   // for testing
 
   boot();
 })();

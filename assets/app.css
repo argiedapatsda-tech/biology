@@ -904,3 +904,24 @@ body.screenmode .ps-stage { height: min(40vh, 460px); }
 .pvmsg { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; font-size: 17px; line-height: 1.6; color: var(--text); background: rgba(2, 6, 10, .78); }
 .pvmsg .th { display: block; color: var(--text-2); font-size: 15px; }
 @media (max-width: 1100px) { .pr-share-body { grid-template-columns: 1fr; } }
+
+/* internet drops: grey, so they read differently from leaving */
+.feed-item.net, .log-item.net { color: #9aa9b8; }
+
+/* camera: the student's own picture in the waiting room, and the reminder on the test */
+.rules li.camrow { align-items: center; }
+.rules li.camrow > span { flex: 1; min-width: 0; }
+.rules li.camrow .btn { margin-top: 8px; }
+.camself { width: 96px; height: 72px; flex: none; object-fit: cover; border-radius: 8px; border: 1px solid var(--line-2); background: #000; transform: scaleX(-1); }
+.test-cam { display: flex; align-items: center; gap: 6px; margin: -6px 4px 12px; font-family: var(--mono); font-size: 12.5px; color: var(--gfp); }
+.test-cam.warn { color: #ff8793; }
+.test-cam .i { width: 15px; height: 15px; }
+/* teacher: the camera tab */
+.cam-stage { position: relative; height: 100%; min-height: 320px; display: grid; place-items: center; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line-2); }
+.cam-stage video { width: 100%; height: 100%; object-fit: contain; }
+.cam-top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.cam-top .btn { margin-left: auto; }
+#dt-cam { display: flex; flex-direction: column; }
+#dt-cam.hidden { display: none; }
+#dt-cam .cam-stage { flex: 1; }
+.s-badge.nocam { background: var(--actin-soft); color: #ff8793; }

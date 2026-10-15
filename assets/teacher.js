@@ -151,7 +151,7 @@
     document.body.classList.toggle('presenting', isPres());
     document.body.classList.toggle('screenmode', isScreen());
     $('#stats').innerHTML = ''; $('#mActions').dataset.sig = '';
-    if (!isPres() && S.tab !== 'screen') { S.tab = 'screen'; $$('#fpTabs > button').forEach(x => x.classList.toggle('on', x.dataset.t === 'screen')); ['screen', 'answers', 'log'].forEach(t => $('#dt-' + t).classList.toggle('hidden', t !== 'screen')); $('#zoomSeg').classList.remove('hidden'); }
+    if (!isPres() && S.tab !== 'screen') { S.tab = 'screen'; $$('#fpTabs > button').forEach(x => x.classList.toggle('on', x.dataset.t === 'screen')); ['screen', 'cam', 'answers', 'log'].forEach(t => $('#dt-' + t).classList.toggle('hidden', t !== 'screen')); $('#zoomSeg').classList.remove('hidden'); }
     $('#quick').innerHTML = (isPres()
       ? ['Please look at the slide.', 'Please stay on this page.', "I'm coming to you.", 'Put your iPad down for now.']
       : ['Read the question again carefully.', "I'm coming to you.", 'Please stay on the test page.', 'You have 5 minutes left.']).map(t => `<button>${esc(t)}</button>`).join('');
@@ -317,7 +317,7 @@
     return `<div class="s-av">${esc(initials(s.name))}</div>
       <div class="s-main"><div class="s-name">${esc(s.name)}</div><div class="s-sub">${esc(sub)}</div></div>
       <div class="s-right">${prog}
-        <span class="s-flags"><span class="s-msgbtn" data-msg="${id}" role="button" title="Send a private message">${icon('chat')}</span>${s.leaves ? `<span class="s-badge left" title="Times left the page">${icon('leave')}${s.leaves}</span>` : ''}${s.afterLeaves ? `<span class="s-badge after" title="Times left after finishing">${icon('leave')}${s.afterLeaves}</span>` : ''}</span></div>`;
+        <span class="s-flags">${!isPres() && s.cam && s.cam !== 'on' && st !== 'submitted' && st !== 'kicked' ? `<span class="s-badge nocam" title="Camera is off on their iPad">${icon('cam')}off</span>` : ''}<span class="s-msgbtn" data-msg="${id}" role="button" title="Send a private message">${icon('chat')}</span>${s.leaves ? `<span class="s-badge left" title="Times left the page">${icon('leave')}${s.leaves}</span>` : ''}${s.afterLeaves ? `<span class="s-badge after" title="Times left after finishing">${icon('leave')}${s.afterLeaves}</span>` : ''}</span></div>`;
   }
   function renderRoster() {
     const host = $('#roster');
@@ -380,7 +380,9 @@
   const feedKeys = new Set();
   const EV_TXT = e => ({
     join: 'joined', rejoin: 'reconnected', reload: 'reloaded the page (locked)',
-    left: (isPres() ? 'left the lesson' : 'left the test') + (e.reason ? ' · ' + e.reason.toLowerCase() : ''), back: 'came back after ' + EL.fmtDur(e.ms),
+    left: (isPres() ? 'left the lesson' : 'left the test') + (e.net === undefined ? (e.reason ? ' · ' + e.reason.toLowerCase() : '')
+      : ' · pressed Home or opened another app' + (e.net === true ? ' · internet was ON' : e.net === false ? ' · internet was off then' : '')),
+    back: 'came back after ' + EL.fmtDur(e.ms), net: 'lost internet for ' + EL.fmtDur(e.ms) + ' (stayed on the page)',
     submit: e.auto ? 'was auto-submitted' : 'submitted', leftafter: 'left the page after finishing', backafter: 'came back after finishing', unlock: 'unlocked by you', lock: 'paused by you', kick: 'removed by you'
   }[e.type] || e.type);
   function onEvents(ev) {
@@ -394,7 +396,7 @@
       if (e.type === 'left' || e.type === 'reload') {
         play('emergency'); alarmLog[e.sid] = { n: 1, last: Date.now() };
         if (fullOpen()) bumpFull();
-        EL.toast(`<b>${esc(e.name)} left the ${isPres() ? 'lesson' : 'test'}</b><br><span class="muted">${e.type === 'reload' ? 'They reloaded the page.' : 'Their screen is now locked.'} Click to view.</span>`, 'red', 7000, () => openStudent(e.sid));
+        EL.toast(`<b>${esc(e.name)} left the ${isPres() ? 'lesson' : 'test'}</b><br><span class="muted">${e.type === 'reload' ? 'They reloaded the page.' : 'Pressed Home or opened another app. Their screen is now locked.'}${e.net === true ? '<br><b>Internet was working</b>: this alert came through it live.' : ''} Click to view.</span>`, 'red', 7000, () => openStudent(e.sid));
       } else if (e.type === 'join') { play('join'); }
       else if (e.type === 'leftafter') {
         play('alarm');
@@ -438,7 +440,7 @@
     $('#feedPanel').classList.add('hidden'); $('#focusPanel').classList.remove('hidden');
     $('#fpActions').dataset.sig = '';
     lastMirrorSig = ''; lastScrollY = -1; chatSig = '';
-    $$('#fpTabs [data-t=screen], #fpTabs [data-t=answers]').forEach(b => b.classList.toggle('hidden', isPres()));
+    $$('#fpTabs [data-t=screen], #fpTabs [data-t=cam], #fpTabs [data-t=answers]').forEach(b => b.classList.toggle('hidden', isPres()));
     if (isPres() && S.tab !== 'log') $('#fpTabs [data-t=log]').click();
     renderStudent(); renderRoster();
     if (opts && opts.chat) setTimeout(focusChat, 60);
@@ -452,6 +454,7 @@
   }
   function closeStudent() {
     S.selected = null;
+    camEnd();
     $('#liveBody').classList.remove('focus'); $('#liveMain').classList.remove('focus');
     $('#focusPanel').classList.add('hidden'); $('#feedPanel').classList.remove('hidden');
     if (S.code) renderRoster();
@@ -463,7 +466,7 @@
     if (!b.dataset.t) return;
     S.tab = b.dataset.t;
     $$('#fpTabs > button').forEach(x => x.classList.toggle('on', x === b));
-    ['screen', 'answers', 'log'].forEach(t => $('#dt-' + t).classList.toggle('hidden', t !== S.tab));
+    ['screen', 'cam', 'answers', 'log'].forEach(t => $('#dt-' + t).classList.toggle('hidden', t !== S.tab));
     $('#zoomSeg').classList.toggle('hidden', S.tab !== 'screen');
     lastMirrorSig = ''; lastScrollY = -1; renderStudent();
   });
@@ -489,6 +492,7 @@
     if (S.tab === 'answers') renderAnswers(sid);
     if (S.tab === 'log') renderLog(sid);
     renderChat(sid);
+    camSync();
   }
   $('#fpActions').addEventListener('click', async e => {
     const b = e.target.closest('[data-dact]'); if (!b) return;
@@ -591,6 +595,80 @@
     const html = list.map(e => `<div class="log-item ${e.type}"><time>${EL.clock(e.at)}</time><span>${esc(EV_TXT(e))}</span></div>`).join('') || '<p class="muted">Nothing yet.</p>';
     if ($('#dt-log')._h !== html) { $('#dt-log')._h = html; $('#dt-log').innerHTML = html; }
   }
+
+  // ---------------- camera: opened by the teacher, one student at a time
+  // The student's iPad turned its camera on in the waiting room. Opening the Camera tab offers a
+  // receive-only connection (control/<sid>/cam); the iPad answers (students/<sid>/camAns) and streams
+  // straight to this computer. Leaving the tab closes it. Nothing is recorded or stored.
+  const CAM = { sid: null, pc: null, id: null, ready: null, state: '', answered: false };
+  function camMsg(h) {
+    const el = $('#camMsg');
+    if (el._h !== h) { el._h = h; el.innerHTML = h; }
+    el.classList.toggle('hidden', !h);
+  }
+  function camEnd() {
+    if (CAM.pc) { try { CAM.pc.close(); } catch (e) {} }
+    if (CAM.sid && S.code && (S.control[CAM.sid] || {}).cam) B.update(P('control/' + CAM.sid), { cam: null }).catch(() => {});
+    Object.assign(CAM, { sid: null, pc: null, id: null, ready: null, state: '', answered: false });
+    const v = $('#camVid'); if (v.srcObject) v.srcObject = null;
+  }
+  async function camStart(sid, ready) {
+    if (CAM.pc) { try { CAM.pc.close(); } catch (e) {} }
+    const pc = new RTCPeerConnection({ iceServers: ICE });
+    const id = Math.random().toString(36).slice(2, 10);
+    Object.assign(CAM, { sid, pc, id, ready, state: 'connecting', answered: false });
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addEventListener('track', e => {
+      const v = $('#camVid');
+      v.srcObject = (e.streams && e.streams[0]) || new MediaStream([e.track]);
+      v.play().catch(() => {});
+    });
+    pc.addEventListener('connectionstatechange', () => { if (CAM.pc === pc) { CAM.state = pc.connectionState; camPaint(); } });
+    camPaint();
+    try {
+      await pc.setLocalDescription(await pc.createOffer());
+      await gathered(pc, 2500);
+      if (CAM.pc !== pc) return;
+      await B.update(P('control/' + sid), { cam: { id, offer: pc.localDescription.sdp, at: B.now() } });
+    } catch (e) { console.error('[cam]', e); if (CAM.pc === pc) { CAM.state = 'failed'; camPaint(); } }
+  }
+  function camSync() {
+    const sid = S.selected, s = S.students[sid];
+    if (!sid || !s || S.tab !== 'cam' || isPres() || !S.code || !window.RTCPeerConnection) { if (CAM.sid) camEnd(); return; }
+    if (CAM.sid && CAM.sid !== sid) camEnd();
+    const st = statusOf(sid);
+    if (s.cam !== 'on' || st === 'offline' || st === 'kicked' || (S.meta && S.meta.status === 'ended')) {
+      if (CAM.pc) { try { CAM.pc.close(); } catch (e) {} CAM.pc = null; CAM.ready = null; }
+      CAM.sid = sid; CAM.state = ''; camPaint(); return;
+    }
+    if (!CAM.pc || CAM.ready !== s.camReady) return camStart(sid, s.camReady);   // first look, or their camera restarted
+    const a = s.camAns;
+    if (!CAM.answered && a && a.id === CAM.id) {
+      CAM.answered = true;
+      CAM.pc.setRemoteDescription({ type: 'answer', sdp: a.sdp }).catch(e => { console.error('[cam]', e); CAM.state = 'failed'; camPaint(); });
+    }
+    camPaint();
+  }
+  function camPaint() {
+    const s = S.students[CAM.sid || S.selected] || {}, first = esc((s.name || '').split(' ')[0]);
+    const st = CAM.sid ? statusOf(CAM.sid) : '', live = CAM.state === 'connected';
+    $('#camRec').classList.toggle('off', !live);
+    $('#camRec').textContent = live ? 'LIVE CAMERA' : 'CAMERA';
+    $('#camInfo').textContent = live ? `${s.device || ''} · front camera · not recorded` : '';
+    let h = '';
+    if (st === 'offline') h = `${first}'s iPad is offline.`;
+    else if (st === 'kicked') h = 'Removed from the test.';
+    else if (S.meta && S.meta.status === 'ended') h = 'The test has ended. Cameras are off.';
+    else if (s.cam === 'denied') h = `<b>${first} blocked the camera.</b><br>Their screen shows a "Turn on camera" button. Ask them to tap it and choose Allow.`;
+    else if (s.cam === 'none') h = `${first}'s device can't start a camera (no camera, or another app is using it).`;
+    else if (s.cam === 'off') h = `${first}'s camera is off right now. It turns back on when they return to the page.`;
+    else if (!s.cam) h = `${first}'s iPad hasn't turned the camera on yet. It asks when they join the waiting room. Older link? Ask them to reload.`;
+    else if (CAM.state === 'failed' || CAM.state === 'disconnected') h = `Can't reach ${first}'s camera. Press Reconnect. If it never works, the school Wi-Fi may block direct connections.`;
+    else if (!live) h = `Opening ${first}'s camera…`;
+    camMsg(h);
+  }
+  $('#camRetry').addEventListener('click', () => { const s = S.students[S.selected]; if (s && s.cam === 'on') camStart(S.selected, s.camReady); else camSync(); });
+  window.__camT = CAM;   // for testing
 
   // ---------------- messages to one student (one-way; stored at students/<id>/chat, so only that student sees them)
   let chatSig = '';
