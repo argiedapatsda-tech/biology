@@ -124,7 +124,7 @@ window.BioBG = (function () {
     // keep the middle calm and dark so text reads well
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     const v = g.createRadialGradient(W / 2, H * .5, Math.min(W, H) * .15, W / 2, H * .5, Math.max(W, H) * .65);
-    v.addColorStop(0, `rgba(3,8,14,${calm ? .85 : .55})`); v.addColorStop(1, `rgba(3,8,14,${calm ? .55 : 0})`);
+    v.addColorStop(0, `rgba(3,8,14,${calm ? .85 : .12})`); v.addColorStop(1, `rgba(3,8,14,${calm ? .55 : 0})`);
     g.fillStyle = v; g.fillRect(0, 0, W, H);
   }
 

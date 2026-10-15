@@ -1266,3 +1266,14 @@ body.bg-calm .cosmos { opacity: .55; }
 .s-title { font-size: clamp(30px, 6vw, 54px); }
 .home h1.glow-title, h1.glow-title { max-width: none; width: 100%; margin: 6px 0 0; text-align: center; font-family: "Orbitron", var(--ui); font-weight: 700; letter-spacing: .14em; color: #8ff7e6; text-shadow: 0 0 6px rgba(80, 240, 220, .9), 0 0 22px rgba(60, 230, 210, .55), 0 0 60px rgba(60, 230, 210, .35); line-height: 1.05; }
 .auth h1.glow-title, .empty-box h1.glow-title { font-size: clamp(32px, 4.4vw, 58px); }
+
+/* see the animation: no frosted blur anywhere, no big box behind the page, light see-through cards */
+*, *::before, *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+.app { background: transparent !important; border: 0 !important; box-shadow: none !important; }
+.side { background: rgba(4, 10, 18, .55) !important; border-radius: 10px !important; border: 1px solid var(--edge) !important; }
+.home .stage { background: transparent !important; border: 0 !important; box-shadow: none !important; }
+.home .stage-head { border-bottom-color: rgba(110, 230, 215, .18); }
+.panel, .stat, .srow, .tcard, .feed, .set-card, .mk-way, .paper-class, .ms-wrap, .focus-panel, .arow, .eq, .ans-row, .empty-roster, .setup .card { background: rgba(6, 14, 24, .58) !important; box-shadow: none !important; }
+.s-card, .auth-card, .modal-box { background: rgba(6, 14, 24, .7) !important; box-shadow: none !important; }
+.btn::before, .tile::before, .box-title::before, .door::before { background: rgba(6, 16, 28, .72); }
+.home .live-strip { background: rgba(4, 10, 18, .5); }
