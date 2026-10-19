@@ -228,16 +228,16 @@
   }
 
   function queue() { if (renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; renderAll(); }); }
-  // when every student has submitted, the test ends by itself
-  let autoEnding = false;
+  // when every student has submitted, only tell the teacher: the test stays open (students can play the games)
+  // until the teacher clicks End test or the time runs out
+  let autoEnding = false, allDoneTold = '';
   function checkAllDone() {
-    const m = S.meta; if (!m || m.status !== 'live' || autoEnding || isPres()) return;
+    const m = S.meta; if (!m || m.status !== 'live' || isPres()) return;
     const ids = Object.keys(S.students).filter(id => statusOf(id) !== 'kicked');
-    if (ids.length && ids.every(id => statusOf(id) === 'submitted')) {
-      autoEnding = true;
-      EL.toast('<b>Everyone has submitted.</b><br><span class="muted">Ending the test and saving the results.</span>', 'green', 5000);
-      Promise.resolve(B.update(P('meta'), { status: 'ended', endedAt: B.now() })).finally(() => { autoEnding = false; });
-    }
+    const all = ids.length && ids.every(id => statusOf(id) === 'submitted');
+    const sig = all ? S.code + ':' + ids.length : '';
+    if (all && sig !== allDoneTold) EL.toast('<b>Everyone has submitted.</b><br><span class="muted">The test stays open, so they can play the games. Click End test when you are ready.</span>', 'green', 8000);
+    allDoneTold = sig;
   }
   function renderAll() {
     if (!S.code) return;
