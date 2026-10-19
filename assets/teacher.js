@@ -946,7 +946,7 @@
             <button class="ibtn" data-qa="up" data-i="${i}" title="Move up">↑</button><button class="ibtn" data-qa="down" data-i="${i}" title="Move down">↓</button>
             <button class="ibtn" data-qa="dup" data-i="${i}" title="Duplicate">⧉</button><button class="ibtn del" data-qa="del" data-i="${i}" title="Delete">✕</button></div></div>
         <textarea class="input" rows="2" data-i="${i}" data-f="text" placeholder="${q.type === 'fill' ? 'e.g. Plants make glucose by [[photosynthesis]] in the [[chloroplast]].' : q.type === 'tf' ? 'Statement' : 'Question'}">${esc(q.text)}</textarea>
-        <div class="eq-img">${q.image ? `<img src="${q.image}" alt="" data-qa="draw" data-i="${i}" title="Draw or write on this picture"><button class="btn sm primary" data-qa="draw" data-i="${i}">✎ Draw / write on it</button><button class="btn sm danger" data-qa="delimg" data-i="${i}">Remove picture</button>` : `<label class="btn sm">Add picture<input type="file" accept="image/*" hidden data-i="${i}" data-f="image"></label><button class="btn sm" data-qa="draw" data-i="${i}">✎ Draw a picture</button>`}
+        <div class="eq-img">${q.image ? `<img src="${q.image}" alt="" data-qa="draw" data-i="${i}" title="Draw or write on this picture"><button class="btn sm primary" data-qa="draw" data-i="${i}">✎ Draw / write on it</button><button class="btn sm danger" data-qa="delimg" data-i="${i}">Remove picture</button>` : `<label class="btn sm">Add picture<input type="file" accept="image/*" hidden data-i="${i}" data-f="image"></label><button class="btn sm" data-qa="pasteimg" data-i="${i}">Paste picture</button><button class="btn sm" data-qa="draw" data-i="${i}">✎ Draw a picture</button><span class="eq-hint">Copied a picture from Google? Click in this question and press <b>Ctrl + V</b>.</span>`}
           ${pages ? `<button class="btn sm" data-qa="crop" data-i="${i}">${q.image ? 'Re-cut from the paper' : 'Picture from the paper'}</button>` : ''}</div>
         ${body}</div>`;
     }).join('');
@@ -1019,6 +1019,7 @@
       const r = await Maker.pickPicture(qs[i].src); if (!r) return;
       qs[i].image = r.image; qs[i].src = r.src; markDirty(); renderEditor(); return;
     }
+    if (a === 'pasteimg') { pasteButton(i); return; }
     if (a === 'draw') {
       const url = await Draw.open(qs[i].image || null); if (!url) return;
       qs[i].image = url; markDirty(); renderEditor(); return;
@@ -1034,6 +1035,72 @@
     if (a === 'delimg') { delete qs[i].image; delete qs[i].src; }
     markDirty(); renderEditor();
   });
+  // ---------------- a picture copied from Google ("Copy image"), a screenshot, or a file dropped on a question
+  let lastEq = -1;
+  $('#edQs').addEventListener('focusin', e => { const c = e.target.closest('.eq'); if (c) lastEq = Number(c.dataset.i); });
+  $('#edQs').addEventListener('pointerdown', e => { const c = e.target.closest('.eq'); if (c) lastEq = Number(c.dataset.i); });
+  async function setPicture(i, blob) {
+    const q = S.editing && S.editing.questions[i]; if (!q || !blob) return false;
+    try { q.image = await EL.loadImage(blob, 900); } catch (x) { EL.toast('That picture could not be opened. Try saving it, then Add picture.', 'red'); return false; }
+    delete q.src; markDirty(); renderEditor();
+    EL.toast(`<b>Picture added to question ${i + 1}.</b><br><span class="muted">Click ✎ Draw / write on it to add arrows or words.</span>`, 'green');
+    return true;
+  }
+  // the picture inside a clipboard copy or a drop: a real image file first, else an <img> link we try to download
+  function clipPicture(dt) {
+    if (!dt) return null;
+    const f = [...(dt.items || [])].find(it => it.kind === 'file' && /^image\//.test(it.type)) || null;
+    if (f) return { blob: f.getAsFile() };
+    const file = [...(dt.files || [])].find(x => /^image\//.test(x.type)); if (file) return { blob: file };
+    const html = dt.getData && dt.getData('text/html'), m = html && html.match(/<img[^>]+src=["']([^"']+)["']/i);
+    const words = html ? html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').trim() : '';
+    if (m && words.length < 3) return { url: m[1].replace(/&amp;/g, '&') };
+    return null;
+  }
+  async function urlPicture(url) {
+    try { const r = await fetch(url, { mode: 'cors' }); if (!r.ok) return null; const b = await r.blob(); return /^image\//.test(b.type) ? b : null; } catch (x) { return null; }
+  }
+  const NOFETCH = '<b>That website does not let us copy its picture.</b><br><span class="muted">Right-click the picture and choose <b>Copy image</b> (not Copy image address), then press Ctrl + V again. Or save it and use Add picture.</span>';
+  const editorOpen = () => S.editing && $('#edQs').offsetParent !== null && $('#pasteModal').classList.contains('hidden') && !(document.getElementById('drawModal') && !$('#drawModal').classList.contains('hidden'));
+  document.addEventListener('paste', async e => {
+    if (!editorOpen()) return;
+    const pic = clipPicture(e.clipboardData); if (!pic) return;
+    e.preventDefault();
+    const c = e.target.closest && e.target.closest('#edQs .eq'), i = c ? Number(c.dataset.i) : lastEq;
+    if (!(i >= 0)) return EL.toast('Click inside the question first, then press Ctrl + V.', 'amber');
+    const blob = pic.blob || await urlPicture(pic.url);
+    if (!blob) return EL.toast(NOFETCH, 'amber', 9000);
+    setPicture(i, blob);
+  });
+  $('#edQs').addEventListener('dragover', e => { if (e.target.closest('.eq')) { e.preventDefault(); e.target.closest('.eq').classList.add('drop-on'); } });
+  $('#edQs').addEventListener('dragleave', e => { const c = e.target.closest('.eq'); if (c && !c.contains(e.relatedTarget)) c.classList.remove('drop-on'); });
+  $('#edQs').addEventListener('drop', async e => {
+    const c = e.target.closest('.eq'); if (!c) return;
+    const pic = clipPicture(e.dataTransfer); if (!pic && !e.dataTransfer.getData('text/uri-list')) return;
+    e.preventDefault(); c.classList.remove('drop-on');
+    const blob = pic && pic.blob || await urlPicture(pic ? pic.url : e.dataTransfer.getData('text/uri-list').split('\n')[0].trim());
+    if (!blob) return EL.toast(NOFETCH, 'amber', 9000);
+    setPicture(Number(c.dataset.i), blob);
+  });
+  // the "Paste picture" button reads the clipboard directly (the browser may ask to allow it once)
+  async function pasteButton(i) {
+    lastEq = i;
+    if (!navigator.clipboard || !navigator.clipboard.read) return EL.toast('Click inside the question and press Ctrl + V to paste the picture.', 'amber');
+    try {
+      const items = await navigator.clipboard.read();
+      for (const it of items) {
+        const t = it.types.find(x => /^image\//.test(x));
+        if (t) return setPicture(i, await it.getType(t));
+      }
+      for (const it of items) if (it.types.includes('text/html')) {
+        const html = await (await it.getType('text/html')).text(), m = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+        if (m) { const b = await urlPicture(m[1].replace(/&amp;/g, '&')); return b ? setPicture(i, b) : EL.toast(NOFETCH, 'amber', 9000); }
+      }
+      EL.toast('<b>No picture was copied.</b><br><span class="muted">On Google, right-click the picture and choose <b>Copy image</b>, then try again.</span>', 'amber', 8000);
+    } catch (x) {
+      EL.toast('<b>The browser blocked the clipboard.</b><br><span class="muted">Click inside the question and press <b>Ctrl + V</b> instead (or allow clipboard for this site).</span>', 'amber', 9000);
+    }
+  }
   $$('[data-add]').forEach(b => b.addEventListener('click', () => {
     S.editing.questions.push(newQ(b.dataset.add)); markDirty(); renderEditor();
     setTimeout(() => { const all = $$('#edQs .eq'); const last = all[all.length - 1]; if (last) { last.scrollIntoView({ behavior: 'smooth', block: 'center' }); const ta = last.querySelector('textarea'); if (ta) ta.focus(); } }, 50);
@@ -1227,7 +1294,6 @@
     setTimeout(() => $('#pmText').focus(), 30);
   }
   $('#pasteNew').addEventListener('click', () => openPaste(false));
-  $('#pasteAdd').addEventListener('click', () => openPaste(true));
   $('#pmNo').addEventListener('click', () => $('#pasteModal').classList.add('hidden'));
   // a web page copy keeps its list numbers and letters only in the HTML version, so read that
   $('#pmText').addEventListener('paste', e => {

@@ -1362,3 +1362,5 @@ body.bg-calm .cosmos { opacity: .55; }
   .prog { width: 60px; }
   .opts.tf { grid-template-columns: 1fr; }
 }
+/* a picture dragged over a question */
+.eq.drop-on { outline: 2px dashed var(--teal); outline-offset: 3px; }
