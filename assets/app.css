@@ -1352,3 +1352,13 @@ body.bg-calm .cosmos { opacity: .55; }
 .draw-txt { position: absolute; min-width: 160px; padding: 2px 6px; line-height: 1.2; background: rgba(255, 255, 255, .92); border: 2px dashed var(--teal); border-radius: 4px; font-weight: 700; font-family: "Chakra Petch", "IBM Plex Sans Thai", Arial, sans-serif; }
 .draw-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 @media (max-width: 720px) { .dt-btn span { display: none; } .draw-box { height: calc(100vh - 20px); } }
+
+/* live screen mirror: the student's phone-width rules must follow the MIRRORED screen's width, not the teacher's
+   wide window (a phone's matching question was drawn in two columns and squashed to one letter per line) */
+.m-screen { container-type: inline-size; }
+@container (max-width: 640px) { .match { grid-template-columns: 1fr; } }
+@container (max-width: 560px) {
+  .tbar { gap: 10px; padding: 0 12px; }
+  .prog { width: 60px; }
+  .opts.tf { grid-template-columns: 1fr; }
+}
