@@ -1318,3 +1318,12 @@ body.bg-calm .cosmos { opacity: .55; }
 .pm-opt.ok b { color: var(--gfp); }
 .pm-info { margin-right: auto; align-self: center; }
 @media (max-width: 760px) { .paste-grid { grid-template-columns: 1fr; } .paste-grid textarea, .paste-prev { height: 34vh; } }
+
+/* "Right answer?" button on each choice in the editor (the bare radio circle was too easy to miss) */
+.eq-ok { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; height: 34px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 6px; font-size: 13px; color: #9fb7c2; cursor: pointer; white-space: nowrap; user-select: none; }
+.eq-ok:hover { border-color: var(--teal); color: #e9fbf8; }
+.eq-ok input { position: absolute; opacity: 0; pointer-events: none; }
+.eq-ok.on { background: var(--teal); border-color: var(--teal); color: #04121a; font-weight: 700; }
+.tf-pick { align-items: center; }
+.tf-pick .eq-ok { min-width: 96px; }
+@media (max-width: 520px) { .eq-ok { padding: 0 8px; font-size: 12px; } }

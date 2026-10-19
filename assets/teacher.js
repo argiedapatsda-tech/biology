@@ -912,13 +912,13 @@
           <div class="eq-tools"><button class="ibtn del" data-qa="del" data-i="${i}" title="Delete">✕</button></div></div></div>`;
       }
       if (q.type === 'mc') {
-        body = q.options.map((o, k) => `<div class="eq-opt ${q.answer === k && !q.needKey ? 'correct' : ''}">
-          <input type="radio" name="c_${q.id}" data-i="${i}" data-f="answer" value="${k}" ${q.answer === k && !q.needKey ? 'checked' : ''} title="Correct answer">
+        body = q.options.map((o, k) => { const on = q.answer === k && !q.needKey; return `<div class="eq-opt ${on ? 'correct' : ''}">
           <span class="letter">${EL.LETTERS[k]}</span><input class="input sm" data-i="${i}" data-f="opt" data-k="${k}" value="${esc(o)}" placeholder="Choice ${EL.LETTERS[k]}">
-          ${q.options.length > 2 ? `<button class="ibtn del" data-qa="delopt" data-i="${i}" data-k="${k}" title="Remove choice">✕</button>` : ''}</div>`).join('') +
-          `<div class="row-between"><span class="eq-hint">${q.needKey ? '<b style="color:var(--amber)">Tick the correct answer</b>' : 'Tick the circle next to the correct answer'}</span>${q.options.length < 6 ? `<button class="btn sm" data-qa="addopt" data-i="${i}">+ Choice</button>` : ''}</div>`;
+          <label class="eq-ok ${on ? 'on' : ''}" title="Make ${EL.LETTERS[k]} the right answer"><input type="radio" name="c_${q.id}" data-i="${i}" data-f="answer" value="${k}" ${on ? 'checked' : ''}>${on ? '✓ Right answer' : 'Right answer?'}</label>
+          ${q.options.length > 2 ? `<button class="ibtn del" data-qa="delopt" data-i="${i}" data-k="${k}" title="Remove choice">✕</button>` : ''}</div>`; }).join('') +
+          `<div class="row-between"><span class="eq-hint">${q.needKey ? '<b style="color:var(--amber)">Click "Right answer?" next to the correct choice</b>' : 'Click "Right answer?" next to the correct choice. Students never see this.'}</span>${q.options.length < 6 ? `<button class="btn sm" data-qa="addopt" data-i="${i}">+ Choice</button>` : ''}</div>`;
       } else if (q.type === 'tf') {
-        body = `<div class="tf-pick">${['true', 'false'].map(v => `<label><input type="radio" name="c_${q.id}" data-i="${i}" data-f="answer" value="${v}" ${q.answer === v ? 'checked' : ''}>${v === 'true' ? 'True' : 'False'} is correct</label>`).join('')}</div>`;
+        body = `<div class="tf-pick"><span class="eq-hint">Right answer:</span>${['true', 'false'].map(v => `<label class="eq-ok ${q.answer === v && !q.needKey ? 'on' : ''}"><input type="radio" name="c_${q.id}" data-i="${i}" data-f="answer" value="${v}" ${q.answer === v ? 'checked' : ''}>${q.answer === v && !q.needKey ? '✓ ' : ''}${v === 'true' ? 'True' : 'False'}</label>`).join('')}</div>`;
       } else if (q.type === 'match') {
         body = `<div class="eq-pairs">${q.pairs.map((p, k) => `<div class="eq-pair"><span class="letter">${k + 1}</span>
             <input class="input sm" data-i="${i}" data-f="pl" data-k="${k}" value="${esc(p[0])}" placeholder="Left side, e.g. Ribosome">
@@ -1002,7 +1002,7 @@
     const el = e.target, i = Number(el.dataset.i), f = el.dataset.f; if (isNaN(i) || !f) return;
     const q = S.editing.questions[i];
     if (f === 'answer' && q.type === 'mc') { q.answer = Number(el.value); delete q.needKey; renderEditor(); }
-    else if (f === 'answer' && q.type === 'tf') { q.answer = el.value; delete q.needKey; if (q.sheet) renderEditor(); }
+    else if (f === 'answer' && q.type === 'tf') { q.answer = el.value; delete q.needKey; renderEditor(); }
     else if (f === 'type') {
       const n = newQ(el.value); n.id = q.id; if (q.text || n.type !== 'match') n.text = q.text;
       if (q.points > 1 && n.type !== 'essay' && q.type !== 'essay') n.points = q.points;
@@ -1245,7 +1245,7 @@
     const qs = r.questions, need = qs.filter(q => q.needKey).length;
     $('#pmAdd').disabled = $('#pmNew').disabled = !qs.length;
     $('#pmInfo').innerHTML = !$('#pmText').value.trim() ? '' : qs.length
-      ? `Found <b>${qs.length}</b> question${qs.length === 1 ? '' : 's'}${need ? ` · <b style="color:var(--amber)">${need} without an answer</b> (tick it after)` : ' · all with answers'}`
+      ? `Found <b>${qs.length}</b> question${qs.length === 1 ? '' : 's'}${need ? ` · <b style="color:var(--amber)">${need} without an answer</b> (pick it after)` : ' · all with answers'}`
       : '<b style="color:var(--amber)">No questions found yet.</b> Start each question on a new line with a number, like 1. or ข้อ 1';
     $('#pmPrev').innerHTML = qs.length ? qs.map((q, i) => {
       let body = '';
@@ -1303,7 +1303,7 @@
       if (!r.title) $('#edTitle').focus();
     }
     const need = qs.filter(q => q.needKey).length;
-    EL.toast(`<b>${add ? 'Added' : 'Made'} ${qs.length} question${qs.length === 1 ? '' : 's'}.</b><br><span class="muted">${need ? `Tick the correct answer for ${need} of them (marked in amber). ` : 'Check the answers. '}${lost ? `${lost} picture${lost === 1 ? '' : 's'} could not be copied from that site: use Add picture. ` : ''}${!add && !r.title ? 'Give the test a title, then Save.' : 'Then Save.'}</span>`, 'green', 9000);
+    EL.toast(`<b>${add ? 'Added' : 'Made'} ${qs.length} question${qs.length === 1 ? '' : 's'}.</b><br><span class="muted">${need ? `Click \"Right answer?\" for ${need} of them (marked in amber). ` : 'Check the answers. '}${lost ? `${lost} picture${lost === 1 ? '' : 's'} could not be copied from that site: use Add picture. ` : ''}${!add && !r.title ? 'Give the test a title, then Save.' : 'Then Save.'}</span>`, 'green', 9000);
   }
   $('#pmNew').addEventListener('click', () => pasteUse(false));
   $('#pmAdd').addEventListener('click', () => pasteUse(true));
@@ -1326,7 +1326,7 @@
       if (!t.paper) delete t.paper;
       openEditor(t); S.dirty = true; infoLine();
       const need = t.questions.filter(q => q.needKey).length;
-      EL.toast(`<b>Made ${t.questions.length} questions from the file.</b><br><span class="muted">${need ? `Tick the correct answer for ${need} of them (marked in amber).` : 'Correct answers were found in the file. Check them.'}</span>`, 'green', 9000);
+      EL.toast(`<b>Made ${t.questions.length} questions from the file.</b><br><span class="muted">${need ? `Click \"Right answer?\" for ${need} of them (marked in amber).` : 'Correct answers were found in the file. Check them.'}</span>`, 'green', 9000);
     } else {
       const s = await askSheet('Add an answer sheet', `We couldn't read separate questions from "${file.name}", so students will see the file itself. How many questions are on it?`, 20);
       t.questions = s ? sheetRows(s.n, s.kind, 1) : [newQ('mc')];
