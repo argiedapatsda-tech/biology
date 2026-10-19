@@ -9,7 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2302060a' stroke='%2346f08f' stroke-width='2.5'/%3E%3Cellipse cx='16' cy='16' rx='5' ry='4' fill='%236a97ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Orbitron:wght@600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/app.css?v=20261015l">
+<link rel="stylesheet" href="assets/app.css?v=20261019a">
 </head>
 <body data-holo="teacher">
 
@@ -168,6 +168,8 @@
         <div class="tests-list">
           <div class="tl-head"><h2>Tests</h2></div>
           <button class="btn primary" id="newTest"><i data-icon="plus"></i>New test</button>
+          <button class="btn primary" id="pasteNew" type="button"><i data-icon="copy"></i>Paste questions</button>
+          <p class="small muted" style="margin:2px 2px 8px">Copy questions from any website, Word or PDF and paste them. Answers are picked up too.</p>
           <label class="btn" id="uploadBtn"><i data-icon="spark"></i>Make from a file (AI)<input type="file" id="uploadInput" accept=".pdf,.docx,image/*" multiple hidden></label>
           <p class="small muted" style="margin:2px 2px 8px">PDF, Word (.docx) or photos. AI writes the questions and answers from it.</p>
           <button class="btn sm" id="newFolder" type="button"><i data-icon="archive"></i>New folder</button>
@@ -201,6 +203,7 @@
               <button class="btn sm" data-add="short">+ Short answer</button>
               <button class="btn sm" data-add="essay">+ Essay</button>
               <button class="btn sm" id="addSheet">+ Answer sheet rows</button>
+              <button class="btn sm" id="pasteAdd" type="button">+ Paste questions</button>
             </div>
             </div>
             <div class="ed-foot">
@@ -360,6 +363,24 @@
   <div class="modal-actions"><button class="btn" id="smNo">Cancel</button><button class="btn primary" id="smYes">Add rows</button></div>
 </div></div>
 
+<!-- copy and paste questions -->
+<div id="pasteModal" class="modal hidden"><div class="modal-box paste-box">
+  <span class="label">Copy and paste</span><h3>Paste questions</h3>
+  <p>Copy the questions from a website, Word, a PDF or a chat, click in the box and press <b>Ctrl + V</b>. Answers like <i>"Answer: B"</i>, <i>"ตอบ ข"</i>, a ✓ or * on the right choice, or an answer list at the end are found too. You can fix anything after.</p>
+  <div class="paste-grid">
+    <textarea id="pmText" class="input" spellcheck="false" placeholder="Paste here, for example:
+
+1. Which organelle makes ATP?
+A. Ribosome
+B. Mitochondria
+C. Nucleus
+D. Golgi body
+Answer: B"></textarea>
+    <div class="paste-prev" id="pmPrev"></div>
+  </div>
+  <div class="modal-actions"><span class="small muted pm-info" id="pmInfo"></span><button class="btn" id="pmNo" type="button">Cancel</button><button class="btn" id="pmAdd" type="button">Add to this test</button><button class="btn primary" id="pmNew" type="button">Make the test</button></div>
+</div></div>
+
 <!-- mark one written answer -->
 <div id="markModal" class="modal hidden"><div class="modal-box mark-box">
   <div class="row-between"><span class="label" id="mkmTag">Mark</span><span class="small muted" id="mkmLeft"></span></div>
@@ -391,13 +412,14 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="assets/config.js?v=20261015l"></script>
-<script src="assets/backend.js?v=20261015l"></script>
-<script src="assets/common.js?v=20261015l"></script>
-<script src="assets/cosmos.js?v=20261015l"></script>
-<script src="assets/importer.js?v=20261015l"></script>
-<script src="assets/print.js?v=20261015l"></script>
-<script src="assets/maker.js?v=20261015l"></script>
-<script src="assets/teacher.js?v=20261015l"></script>
+<script src="assets/config.js?v=20261019a"></script>
+<script src="assets/backend.js?v=20261019a"></script>
+<script src="assets/common.js?v=20261019a"></script>
+<script src="assets/cosmos.js?v=20261019a"></script>
+<script src="assets/importer.js?v=20261019a"></script>
+<script src="assets/paste.js?v=20261019a"></script>
+<script src="assets/print.js?v=20261019a"></script>
+<script src="assets/maker.js?v=20261019a"></script>
+<script src="assets/teacher.js?v=20261019a"></script>
 </body>
 </html>

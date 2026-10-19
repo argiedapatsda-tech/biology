@@ -1209,6 +1209,105 @@
     go('make');
     Maker.load(files);
   });
+  // ---------------- copy and paste questions (from a website, Word, a PDF or a chat)
+  const PM = { pics: [], found: null, timer: 0 };
+  function openPaste(add) {
+    PM.pics = []; PM.found = null;
+    $('#pmText').value = '';
+    $('#pmAdd').classList.toggle('hidden', !add);
+    $('#pmNew').textContent = add ? 'Make a new test instead' : 'Make the test';
+    $('#pmNew').className = 'btn ' + (add ? '' : 'primary');
+    $('#pmAdd').className = 'btn primary' + (add ? '' : ' hidden');
+    pasteScan();
+    $('#pasteModal').classList.remove('hidden');
+    setTimeout(() => $('#pmText').focus(), 30);
+  }
+  $('#pasteNew').addEventListener('click', () => openPaste(false));
+  $('#pasteAdd').addEventListener('click', () => openPaste(true));
+  $('#pmNo').addEventListener('click', () => $('#pasteModal').classList.add('hidden'));
+  // a web page copy keeps its list numbers and letters only in the HTML version, so read that
+  $('#pmText').addEventListener('paste', e => {
+    const cd = e.clipboardData; if (!cd) return;
+    const html = cd.getData('text/html');
+    if (!html || !/<(ol|ul|li|img|table|input)\b/i.test(html)) return;
+    let txt;
+    try { txt = Paste.toText(html, PM.pics); } catch (x) { return; }
+    if (!txt) return;
+    e.preventDefault();
+    const ta = e.target, a = ta.selectionStart, b = ta.selectionEnd;
+    ta.value = ta.value.slice(0, a) + txt + ta.value.slice(b);
+    ta.selectionStart = ta.selectionEnd = a + txt.length;
+    pasteScan();
+  });
+  $('#pmText').addEventListener('input', () => { clearTimeout(PM.timer); PM.timer = setTimeout(pasteScan, 200); });
+  function pasteScan() {
+    const r = PM.found = Paste.parse($('#pmText').value);
+    const qs = r.questions, need = qs.filter(q => q.needKey).length;
+    $('#pmAdd').disabled = $('#pmNew').disabled = !qs.length;
+    $('#pmInfo').innerHTML = !$('#pmText').value.trim() ? '' : qs.length
+      ? `Found <b>${qs.length}</b> question${qs.length === 1 ? '' : 's'}${need ? ` · <b style="color:var(--amber)">${need} without an answer</b> (tick it after)` : ' · all with answers'}`
+      : '<b style="color:var(--amber)">No questions found yet.</b> Start each question on a new line with a number, like 1. or ข้อ 1';
+    $('#pmPrev').innerHTML = qs.length ? qs.map((q, i) => {
+      let body = '';
+      if (q.type === 'mc') body = q.options.map((o, k) => `<div class="pm-opt ${!q.needKey && q.answer === k ? 'ok' : ''}"><b>${EL.LETTERS[k]}</b> ${esc(o)}</div>`).join('');
+      else if (q.type === 'tf') body = `<div class="pm-opt ${q.needKey ? '' : 'ok'}">${q.needKey ? 'True or false?' : q.answer === 'true' ? 'True' : 'False'}</div>`;
+      else if (q.type === 'fill') body = `<div class="pm-opt ok">${EL.blanksOf(q.text).map(b => esc(b.join(' / '))).join(', ')}</div>`;
+      else body = q.answer ? `<div class="pm-opt ok">${esc(q.answer)}</div>` : '<div class="pm-opt muted">You mark this one, or type the answer after.</div>';
+      const pics = q.pics.length ? ` <span class="pm-pic">+ ${q.pics.length} picture${q.pics.length === 1 ? '' : 's'}</span>` : '';
+      return `<div class="pm-q ${q.needKey ? 'need' : ''}"><div class="pm-head"><span class="pm-n">${i + 1}</span><span class="kind">${EL.TYPE_LABEL[q.type]}</span>${q.needKey ? '<span class="pm-need">no answer found</span>' : ''}${pics}</div>
+        <div class="pm-t">${esc(q.type === 'fill' ? q.text.replace(/\[\[(.*?)\]\]/g, '____') : q.text) || '<span class="muted">(picture only)</span>'}</div>${body}</div>`;
+    }).join('') : `<div class="pm-empty muted">What you paste shows up here as questions.</div>`;
+  }
+  // a picture from the copied page -> a small picture stored with the question (skipped if the site blocks it)
+  async function pastePic(src) {
+    try {
+      const blob = await (await fetch(src, { mode: 'cors' })).blob();
+      if (!blob.type.startsWith('image/')) return '';
+      return await EL.loadImage(blob, 900, 0.8);
+    } catch (x) { return ''; }
+  }
+  async function pasteUse(add) {
+    const r = PM.found; if (!r || !r.questions.length) return;
+    if (!add && S.dirty && S.editing && !(await confirmBox('Discard unsaved changes?', 'This makes a new test from what you pasted.', 'Continue', true))) return;
+    $('#pasteModal').classList.add('hidden');
+    let lost = 0;
+    const qs = [];
+    for (let i = 0; i < r.questions.length; i++) {
+      const p = r.questions[i];
+      const q = Object.assign(newQ(p.type), { text: p.text });
+      if (p.type === 'mc') { q.options = p.options; q.answer = p.answer; }
+      if (p.type === 'tf' || p.type === 'short') q.answer = p.answer;
+      if (p.needKey) q.needKey = true;
+      if (p.explain) q.explain = p.explain;
+      if (p.pics.length) {
+        busy(`Copying the picture for question ${i + 1}…`);
+        const src = PM.pics[p.pics[0]];
+        const img = src ? await pastePic(src) : '';
+        if (img) q.image = img; else lost++;
+        lost += p.pics.length - 1;
+      }
+      qs.push(q);
+    }
+    busy('');
+    if (add && S.editing) {
+      const t = S.editing;
+      // replace the empty starter question of a brand-new test
+      if (t.questions.length === 1 && !String(t.questions[0].text || '').trim() && !t.questions[0].image && !t.questions[0].sheet) t.questions = [];
+      t.questions.push(...qs);
+      if (!String(t.title || '').trim() && r.title) { t.title = r.title; $('#edTitle').value = r.title; }
+      markDirty(); renderEditor();
+    } else {
+      const open = Object.keys(S.folders || {}).filter(folderOpen);
+      openEditor({ id: 't' + EL.rid(8), title: r.title || '', timeLimit: 0, shuffle: false, pick: 0, nsets: 1, folder: open.length === 1 ? open[0] : '', questions: qs });
+      S.dirty = true; infoLine();
+      if (!r.title) $('#edTitle').focus();
+    }
+    const need = qs.filter(q => q.needKey).length;
+    EL.toast(`<b>${add ? 'Added' : 'Made'} ${qs.length} question${qs.length === 1 ? '' : 's'}.</b><br><span class="muted">${need ? `Tick the correct answer for ${need} of them (marked in amber). ` : 'Check the answers. '}${lost ? `${lost} picture${lost === 1 ? '' : 's'} could not be copied from that site: use Add picture. ` : ''}${!add && !r.title ? 'Give the test a title, then Save.' : 'Then Save.'}</span>`, 'green', 9000);
+  }
+  $('#pmNew').addEventListener('click', () => pasteUse(false));
+  $('#pmAdd').addEventListener('click', () => pasteUse(true));
+
   // "Use my paper as it is" (no AI): typed questions are picked out of the file, else students see the file + answer rows
   async function useAsIs(file) {
     if (!file) return;
