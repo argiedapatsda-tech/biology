@@ -946,7 +946,7 @@
             <button class="ibtn" data-qa="up" data-i="${i}" title="Move up">↑</button><button class="ibtn" data-qa="down" data-i="${i}" title="Move down">↓</button>
             <button class="ibtn" data-qa="dup" data-i="${i}" title="Duplicate">⧉</button><button class="ibtn del" data-qa="del" data-i="${i}" title="Delete">✕</button></div></div>
         <textarea class="input" rows="2" data-i="${i}" data-f="text" placeholder="${q.type === 'fill' ? 'e.g. Plants make glucose by [[photosynthesis]] in the [[chloroplast]].' : q.type === 'tf' ? 'Statement' : 'Question'}">${esc(q.text)}</textarea>
-        <div class="eq-img">${q.image ? `<img src="${q.image}" alt=""><button class="btn sm danger" data-qa="delimg" data-i="${i}">Remove picture</button>` : `<label class="btn sm">Add picture<input type="file" accept="image/*" hidden data-i="${i}" data-f="image"></label>`}
+        <div class="eq-img">${q.image ? `<img src="${q.image}" alt="" data-qa="draw" data-i="${i}" title="Draw or write on this picture"><button class="btn sm primary" data-qa="draw" data-i="${i}">✎ Draw / write on it</button><button class="btn sm danger" data-qa="delimg" data-i="${i}">Remove picture</button>` : `<label class="btn sm">Add picture<input type="file" accept="image/*" hidden data-i="${i}" data-f="image"></label><button class="btn sm" data-qa="draw" data-i="${i}">✎ Draw a picture</button>`}
           ${pages ? `<button class="btn sm" data-qa="crop" data-i="${i}">${q.image ? 'Re-cut from the paper' : 'Picture from the paper'}</button>` : ''}</div>
         ${body}</div>`;
     }).join('');
@@ -1018,6 +1018,10 @@
     if (a === 'crop') {
       const r = await Maker.pickPicture(qs[i].src); if (!r) return;
       qs[i].image = r.image; qs[i].src = r.src; markDirty(); renderEditor(); return;
+    }
+    if (a === 'draw') {
+      const url = await Draw.open(qs[i].image || null); if (!url) return;
+      qs[i].image = url; markDirty(); renderEditor(); return;
     }
     if (a === 'up' && i > 0) [qs[i - 1], qs[i]] = [qs[i], qs[i - 1]];
     if (a === 'down' && i < qs.length - 1) [qs[i + 1], qs[i]] = [qs[i], qs[i + 1]];

@@ -1331,3 +1331,24 @@ body.bg-calm .cosmos { opacity: .55; }
 .eq-pair-head span { font-size: 12px; font-weight: 700; letter-spacing: .04em; color: #9fb7c2; }
 .eq-pair-head span:nth-child(4) { color: var(--teal); }
 .input.eq-key { border-color: rgba(63, 230, 207, .55); }
+
+/* ---------------- draw / write on a question picture (assets/draw.js) */
+.eq-img img[data-qa=draw] { cursor: pointer; }
+#drawModal { padding: 10px; }
+.draw-box { display: flex; flex-direction: column; gap: 10px; width: min(1200px, 100%); height: min(860px, calc(100vh - 20px)); padding: 14px; background: rgba(6, 14, 24, .97); border: 1px solid var(--edge); border-radius: 12px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
+.draw-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.draw-tools, .draw-colors, .draw-sizes, .draw-acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.dt-btn { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 10px; border: 1px solid var(--edge); border-radius: 6px; background: rgba(4, 12, 20, .9); color: #cfe4ea; font: 600 13px var(--ui); cursor: pointer; }
+.dt-btn b { font-size: 16px; line-height: 1; }
+.dt-btn.on { background: var(--teal); border-color: var(--teal); color: #04121a; }
+.dc-btn { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .25); background: var(--c); cursor: pointer; }
+.dc-btn.on { outline: 3px solid var(--teal); outline-offset: 2px; }
+.ds-btn { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid var(--edge); border-radius: 6px; background: rgba(4, 12, 20, .9); cursor: pointer; }
+.ds-btn i { display: block; width: 20px; height: var(--w); border-radius: 9px; background: #cfe4ea; }
+.ds-btn.on { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal); }
+.draw-stage { flex: 1; min-height: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .35); border-radius: 8px; overflow: hidden; }
+.draw-wrap { position: relative; line-height: 0; }
+#drawCv { display: block; touch-action: none; border-radius: 4px; box-shadow: 0 6px 30px rgba(0, 0, 0, .5); }
+.draw-txt { position: absolute; min-width: 160px; padding: 2px 6px; line-height: 1.2; background: rgba(255, 255, 255, .92); border: 2px dashed var(--teal); border-radius: 4px; font-weight: 700; font-family: "Chakra Petch", "IBM Plex Sans Thai", Arial, sans-serif; }
+.draw-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 720px) { .dt-btn span { display: none; } .draw-box { height: calc(100vh - 20px); } }
