@@ -12,6 +12,11 @@
   let timerInt = null, lastResult = null, closed = false, afterAway = false, afterLeaves = 0, gamesOn = false, gamesShut = false, overInt = null;
   const isPres = () => !!(meta && meta.kind === 'present');
   const P = () => `sessions/${code}/students/${uid}`;
+  // Safe Exam Browser locks the iPad into this page (Apple's Assessment Mode): no Home, no other apps.
+  // It adds "SEB/<version>" to the user agent.
+  const inSEB = /\bSEB\//.test(navigator.userAgent) || !!window.SafeExamBrowser;
+  const SEB_LINK = 'sebs://argiedapatsda-tech.github.io/biology/lock.seb';
+  const quitSEB = () => { if (inSEB) location.href = new URL('student.html?quit=1', location.href).href; };
 
   function show(id) {
     ['join', 'joining', 'wait', 'count', 'test', 'done', 'msg', 'present'].forEach(s => $('#scr-' + s).classList.toggle('hidden', s !== id));
@@ -70,6 +75,7 @@
       const m = await B.get(`sessions/${c}/meta`);
       if (!m) throw new Error('No test found with that code. Check it with your teacher.');
       if (m.status === 'ended') throw new Error(m.kind === 'present' ? 'This lesson has already ended.' : 'This test has already ended.');
+      if (m.seb && m.kind !== 'present' && !inSEB) { $('#joinBtn').disabled = false; $('#joinBtn').textContent = 'Join'; return needSEB(); }
       code = c; name = n; meta = m;
       try { localStorage.setItem('examlock-student', JSON.stringify({ code, name })); } catch (e2) {}
       await joinSequence();
@@ -81,6 +87,21 @@
       show('join');
     }
   });
+
+  // this test only opens inside Safe Exam Browser, where leaving is impossible
+  function needSEB() {
+    $('#msgTag').textContent = 'Locked test · ข้อสอบล็อก';
+    $('#msgTitle').textContent = 'Open this test in Safe Exam Browser';
+    $('#msgBody').innerHTML = `This test can't be done in Safari.<span class="th">ข้อสอบนี้ทำใน Safari ไม่ได้</span>
+      <ol class="seb-steps">
+        <li>Get the free app <b>Safe Exam Browser</b> from the App Store.<span class="th">ติดตั้งแอปฟรี Safe Exam Browser จาก App Store</span></li>
+        <li>Tap <b>Open the test</b> below, then tap <b>Allow</b> / <b>Start</b>.<span class="th">แตะ “Open the test” แล้วกด Allow / Start</span></li>
+        <li>Type the code and your name again.<span class="th">พิมพ์รหัสและชื่ออีกครั้ง</span></li>
+      </ol>
+      <div class="seb-btns"><a class="btn primary lg" href="${SEB_LINK}">Open the test</a>
+      <a class="btn lg" href="https://apps.apple.com/app/id1155002964" target="_blank" rel="noopener">Get the app</a></div>`;
+    show('msg');
+  }
 
   async function joinSequence() {
     show('joining');
@@ -300,8 +321,25 @@
     sfx.alarm();
   }
   document.addEventListener('visibilitychange', () => { document.hidden ? goAway('Switched app or tab') : comeBack(); });
-  window.addEventListener('blur', () => goAway('Left the page'));
-  window.addEventListener('focus', comeBack);
+  // On iPad, closing the keyboard, dictation or Apple Pencil writing can blur the window for a moment
+  // while the student never left. Home / app switch always fires visibilitychange above, so a plain
+  // blur only counts if the page is still unfocused 1.5 s later and nobody was just typing.
+  let typedAt = 0, blurTimer = null;
+  const isText = el => !!el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !/^(button|submit|checkbox|radio)$/.test(el.type)));
+  document.addEventListener('focusin', e => { if (isText(e.target)) typedAt = Date.now(); });
+  document.addEventListener('focusout', e => { if (isText(e.target)) typedAt = Date.now(); });
+  document.addEventListener('input', () => { typedAt = Date.now(); });
+  const touch = navigator.maxTouchPoints > 1;
+  window.addEventListener('blur', () => {
+    if (inSEB) return;   // the iPad is locked into this page; nothing else can take focus
+    clearTimeout(blurTimer);
+    blurTimer = setTimeout(() => {
+      if (document.hidden || document.hasFocus()) return;
+      if (touch && (isText(document.activeElement) || Date.now() - typedAt < 2500)) return;
+      goAway('Left the page');
+    }, touch ? 1500 : 400);
+  });
+  window.addEventListener('focus', () => { clearTimeout(blurTimer); comeBack(); });
   window.addEventListener('pageshow', comeBack);
 
   // the screens where leaving counts: the test itself, and a live presentation
@@ -408,6 +446,7 @@
     shutGames(true);
     if (closed) return;
     closed = true;
+    setTimeout(quitSEB, 6000);   // inside Safe Exam Browser: unlock the iPad once the teacher closes the test
     $('#doneTitle').textContent = 'Test closed';
     $('#doneLead').innerHTML = 'Your teacher has closed the test. You can close this page now.<span class="th">ครูปิดการสอบแล้ว ปิดหน้านี้ได้เลย</span>';
     $('#stayNote').classList.add('hidden');
@@ -429,6 +468,7 @@
     $('#msgTitle').textContent = 'Removed from the test';
     $('#msgBody').textContent = 'Your teacher removed you from this test. · ครูได้นำคุณออกจากการสอบนี้';
     show('msg');
+    setTimeout(quitSEB, 6000);
   }
 
   // ---------------------------------------------------------------- presentation: follow the teacher's slides

@@ -9,7 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2302060a' stroke='%2346f08f' stroke-width='2.5'/%3E%3Cellipse cx='16' cy='16' rx='5' ry='4' fill='%236a97ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Orbitron:wght@600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/app.css?v=20261019h">
+<link rel="stylesheet" href="assets/app.css?v=20261019i">
 </head>
 <body data-holo="teacher">
 
@@ -186,6 +186,7 @@
                 <label class="field"><span>Sets (A, B, C …)</span><select class="input" id="edSets"><option value="1">1 · everyone the same</option><option value="2">2 · A B</option><option value="3">3 · A B C</option><option value="4">4 · A B C D</option><option value="5">5 · A – E</option><option value="6">6 · A – F</option></select></label>
                 <label class="field"><span>Folder</span><select class="input" id="edFolder"></select></label>
                 <label class="check"><input type="checkbox" id="edShuffle"><span>Shuffle question order for each student</span></label>
+                <label class="check"><input type="checkbox" id="edSeb"><span><b>Lock the iPads</b>: students must use the free app Safe Exam Browser, so they can't leave the test</span></label>
               </div>
               <div class="pool-note small" id="edPool"></div>
               <div id="edPaper"></div>
@@ -326,8 +327,7 @@
       <span class="label" id="projLabel">Join the test</span>
       <h1 id="projTitle"></h1>
       <div class="proj-steps">
-        <div class="proj-step"><span>1</span><div>Scan the QR code with your iPad camera</div></div>
-        <div class="proj-step"><span>2</span><div>or open <b id="projUrl"></b> and type the code</div></div>
+        <div id="projSteps"></div>
       </div>
       <div class="proj-codebox"><span class="label">Code</span><div class="proj-code" id="projCode"></div></div>
     </div>
@@ -411,15 +411,15 @@ Answer: B"></textarea>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="assets/config.js?v=20261019h"></script>
-<script src="assets/backend.js?v=20261019h"></script>
-<script src="assets/common.js?v=20261019h"></script>
-<script src="assets/cosmos.js?v=20261019h"></script>
-<script src="assets/importer.js?v=20261019h"></script>
-<script src="assets/paste.js?v=20261019h"></script>
-<script src="assets/draw.js?v=20261019h"></script>
-<script src="assets/print.js?v=20261019h"></script>
-<script src="assets/maker.js?v=20261019h"></script>
-<script src="assets/teacher.js?v=20261019h"></script>
+<script src="assets/config.js?v=20261019i"></script>
+<script src="assets/backend.js?v=20261019i"></script>
+<script src="assets/common.js?v=20261019i"></script>
+<script src="assets/cosmos.js?v=20261019i"></script>
+<script src="assets/importer.js?v=20261019i"></script>
+<script src="assets/paste.js?v=20261019i"></script>
+<script src="assets/draw.js?v=20261019i"></script>
+<script src="assets/print.js?v=20261019i"></script>
+<script src="assets/maker.js?v=20261019i"></script>
+<script src="assets/teacher.js?v=20261019i"></script>
 </body>
 </html>

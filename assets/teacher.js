@@ -15,6 +15,7 @@
   let sessionSubs = [], renderQueued = false;
   const seenEvents = new Set(); let eventsPrimed = false;
   const resultCache = {};
+  const SEB_LINK = 'sebs://argiedapatsda-tech.github.io/biology/lock.seb';
   const studentURL = c => new URL('student.html' + (c ? '?c=' + c : ''), location.href).href;
   const STATUS_TXT = { active: 'Working', waiting: 'Waiting', away: 'Left the test', locked: 'Locked', submitted: 'Submitted', offline: 'Offline', kicked: 'Removed' };
   const initials = n => String(n || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -180,7 +181,7 @@
     }
     $('#liveEmpty').classList.add('hidden'); $('#liveMain').classList.remove('hidden');
     $('#mCode').textContent = code;
-    sessionSubs.push(B.on(P('meta'), m => { if (!m) return; S.meta = m; renderBar(); queue(); if (isPres() && !isScreen()) renderSlide(); rtcSync(); if (m.status === 'ended') setTimeout(finishSession, 1500); }));
+    sessionSubs.push(B.on(P('meta'), m => { if (!m) return; const sebWas = S.meta && S.meta.seb; S.meta = m; renderBar(); if (!!m.seb !== !!sebWas && !$('#projector').classList.contains('hidden')) openProjector(); queue(); if (isPres() && !isScreen()) renderSlide(); rtcSync(); if (m.status === 'ended') setTimeout(finishSession, 1500); }));
     sessionSubs.push(B.on(P('students'), s => { S.students = s || {}; queue(); rtcSync(); }));
     sessionSubs.push(B.on(P('control'), c => { S.control = c || {}; queue(); rtcSync(); }));
     sessionSubs.push(B.on(P('overrides'), o => { S.overrides = o || {}; queue(); }));
@@ -710,10 +711,15 @@
     $('#projector').classList.remove('hidden');
     $('#projTitle').textContent = S.meta ? S.meta.title : '';
     $('#projLabel').textContent = isPres() ? 'Join the lesson' : 'Join the test';
-    $('#projUrl').textContent = studentURL().replace(/^https?:\/\//, '');
+    // a locked test opens in Safe Exam Browser: the QR is the lock file's link, students then type the code
+    const seb = !isPres() && S.meta && S.meta.seb;
+    const step = (n, h) => `<div class="proj-step"><span>${n}</span><div>${h}</div></div>`;
+    $('#projSteps').innerHTML = seb
+      ? step(1, 'Install the free app <b>Safe Exam Browser</b> (App Store)') + step(2, 'Scan the QR code with the iPad camera, open it in Safe Exam Browser, tap <b>Allow</b>') + step(3, 'Type the code and your name')
+      : step(1, 'Scan the QR code with your iPad camera') + step(2, 'or open <b>' + esc(studentURL().replace(/^https?:\/\//, '')) + '</b> and type the code');
     $('#projCode').textContent = S.code;
     $('#projQr').innerHTML = '';
-    if (window.QRCode) new QRCode($('#projQr'), { text: studentURL(S.code), width: 320, height: 320, colorDark: '#08090b', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
+    if (window.QRCode) new QRCode($('#projQr'), { text: seb ? SEB_LINK : studentURL(S.code), width: 320, height: 320, colorDark: '#08090b', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
     else $('#projQr').innerHTML = '<div style="color:#000;padding:20px">QR needs internet</div>';
   }
   function closeProjector() { $('#projector').classList.add('hidden'); }
@@ -871,7 +877,7 @@
     S.editing = t; S.dirty = false;
     go('tests');
     $('#edEmpty').classList.add('hidden'); $('#edMain').classList.remove('hidden');
-    $('#edTitle').value = t.title || ''; $('#edTime').value = t.timeLimit || 0; $('#edShuffle').checked = !!t.shuffle;
+    $('#edTitle').value = t.title || ''; $('#edTime').value = t.timeLimit || 0; $('#edShuffle').checked = !!t.shuffle; $('#edSeb').checked = t.seb !== false;
     $('#edPick').value = t.pick || 0; $('#edSets').value = String(Math.min(6, t.nsets));
     fillFolderSelect();
     edTab('qs');
@@ -978,6 +984,7 @@
   $('#edTitle').addEventListener('input', () => { S.editing.title = $('#edTitle').value; markDirty(); });
   $('#edTime').addEventListener('input', () => { S.editing.timeLimit = Math.max(0, Number($('#edTime').value) || 0); markDirty(); });
   $('#edShuffle').addEventListener('change', () => { S.editing.shuffle = $('#edShuffle').checked; markDirty(); });
+  $('#edSeb').addEventListener('change', () => { S.editing.seb = $('#edSeb').checked; markDirty(); });
   $('#edFolder').addEventListener('change', () => {
     S.editing.folder = $('#edFolder').value || '';
     // a saved test moves right away; a new one moves when it is saved
@@ -1484,7 +1491,7 @@
     const list = used ? t.questions.filter(q => used.has(q.id)) : t.questions;
     busy('Starting the test…');
     try {
-      await B.set(`sessions/${code}/meta`, Object.assign({ title: t.title.trim(), status: 'waiting', createdAt: now, timeLimit: Number(t.timeLimit) || 0, shuffle: !!t.shuffle, release: false, owner: S.uid, testId: t.id },
+      await B.set(`sessions/${code}/meta`, Object.assign({ title: t.title.trim(), status: 'waiting', createdAt: now, timeLimit: Number(t.timeLimit) || 0, shuffle: !!t.shuffle, seb: t.seb !== false, release: false, owner: S.uid, testId: t.id },
         sets ? { sets: sets.map(x => ({ n: x.n, ids: x.ids })) } : {}));
       const questions = list.map(forStudents);
       // the test paper travels as the first item of the questions list (students can read that list)
