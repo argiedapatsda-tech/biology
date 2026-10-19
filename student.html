@@ -10,7 +10,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2302060a' stroke='%2346f08f' stroke-width='2.5'/%3E%3Cellipse cx='16' cy='16' rx='5' ry='4' fill='%236a97ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Orbitron:wght@600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/app.css?v=20261019d">
+<link rel="stylesheet" href="assets/app.css?v=20261019e">
 </head>
 <body data-holo="student" class="s-join">
 
@@ -67,9 +67,9 @@
       <div class="muted" id="wMeta"></div>
     </div>
     <ul class="rules">
-      <li><i data-icon="tests"></i><span>Stay on this page for the whole test.<em>อยู่ในหน้านี้ตลอดการสอบ</em></span></li>
-      <li class="warn"><i data-icon="lock"></i><span>If you leave (home screen, another app or tab), the test <b>locks</b>. Only your teacher can unlock it.<em>ถ้าออกจากหน้านี้ ข้อสอบจะล็อก และครูเท่านั้นที่ปลดล็อกได้</em></span></li>
-      <li><i data-icon="eye"></i><span>Your teacher can see your screen live and may send you a message.<em>ครูเห็นหน้าจอของคุณแบบสดและอาจส่งข้อความถึงคุณ</em></span></li>
+      <li class="warn"><i data-icon="leave"></i><span><b>Don't leave the test! Important!</b><em>ห้ามออกจากหน้าข้อสอบ! สำคัญมาก!</em></span></li>
+      <li><i data-icon="eye"></i><span>Read each question carefully.<em>อ่านคำถามทุกข้ออย่างละเอียด</em></span></li>
+      <li><i data-icon="check"></i><span>Answer every question. Don't leave any blank.<em>ตอบให้ครบทุกข้อ อย่าเว้นว่าง</em></span></li>
     </ul>
     <div class="standby"><span class="dots"><i></i><i></i><i></i></span>Waiting for your teacher to start · รอครูเริ่มการสอบ</div>
   </section>
@@ -108,7 +108,7 @@
       <div class="scorebar"><i id="scoreBar"></i></div>
     </div>
     <div class="muted small" id="doneWait">Your score appears here when your teacher releases it.</div>
-    <div class="stay-note" id="stayNote"><i data-icon="eye"></i><span>Stay on this page. Your teacher still sees if you leave it. · อยู่ในหน้านี้ ครูยังเห็นถ้าคุณออก</span></div>
+    <div class="stay-note" id="stayNote"><i data-icon="eye"></i><span>Don't leave the test! · ห้ามออกจากหน้าข้อสอบ!</span></div>
     <div class="games" id="gamesBox">
       <div class="games-head"><b>While you wait</b><span class="small muted">Biology arcade · tap a game</span></div>
       <div id="gameHost"></div>
@@ -129,7 +129,7 @@
     <div class="ploader" id="pLoad"><div class="spinner"></div></div>
     <div class="pvmsg hidden" id="pVidMsg"></div>
   </div>
-  <div class="pfoot"><i data-icon="eye"></i>Stay on this page. Your teacher sees if you leave. · อยู่ในหน้านี้ ครูเห็นถ้าคุณออก</div>
+  <div class="pfoot"><i data-icon="eye"></i>Don't leave the test! · ห้ามออกจากหน้าข้อสอบ!</div>
   <div class="pptr hidden" id="pPtr"></div>
 </div>
 
@@ -184,12 +184,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="assets/config.js?v=20261019d"></script>
-<script src="assets/backend.js?v=20261019d"></script>
-<script src="assets/common.js?v=20261019d"></script>
-<script src="assets/cosmos.js?v=20261019d"></script>
-<script src="assets/biosprites.js?v=20261019d"></script>
-<script src="assets/games.js?v=20261019d"></script>
-<script src="assets/student.js?v=20261019d"></script>
+<script src="assets/config.js?v=20261019e"></script>
+<script src="assets/backend.js?v=20261019e"></script>
+<script src="assets/common.js?v=20261019e"></script>
+<script src="assets/cosmos.js?v=20261019e"></script>
+<script src="assets/biosprites.js?v=20261019e"></script>
+<script src="assets/games.js?v=20261019e"></script>
+<script src="assets/student.js?v=20261019e"></script>
 </body>
 </html>
