@@ -1327,3 +1327,7 @@ body.bg-calm .cosmos { opacity: .55; }
 .tf-pick { align-items: center; }
 .tf-pick .eq-ok { min-width: 96px; }
 @media (max-width: 520px) { .eq-ok { padding: 0 8px; font-size: 12px; } }
+/* matching editor: column titles + the right-answer column looks like the answer key */
+.eq-pair-head span { font-size: 12px; font-weight: 700; letter-spacing: .04em; color: #9fb7c2; }
+.eq-pair-head span:nth-child(4) { color: var(--teal); }
+.input.eq-key { border-color: rgba(63, 230, 207, .55); }

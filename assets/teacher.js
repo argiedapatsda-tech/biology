@@ -920,12 +920,12 @@
       } else if (q.type === 'tf') {
         body = `<div class="tf-pick"><span class="eq-hint">Right answer:</span>${['true', 'false'].map(v => `<label class="eq-ok ${q.answer === v && !q.needKey ? 'on' : ''}"><input type="radio" name="c_${q.id}" data-i="${i}" data-f="answer" value="${v}" ${q.answer === v ? 'checked' : ''}>${q.answer === v && !q.needKey ? '✓ ' : ''}${v === 'true' ? 'True' : 'False'}</label>`).join('')}</div>`;
       } else if (q.type === 'match') {
-        body = `<div class="eq-pairs">${q.pairs.map((p, k) => `<div class="eq-pair"><span class="letter">${k + 1}</span>
-            <input class="input sm" data-i="${i}" data-f="pl" data-k="${k}" value="${esc(p[0])}" placeholder="Left side, e.g. Ribosome">
+        body = `<div class="eq-pairs"><div class="eq-pair eq-pair-head"><span></span><span>Item</span><span></span><span>✓ Right answer for that item</span><span></span></div>${q.pairs.map((p, k) => `<div class="eq-pair"><span class="letter">${k + 1}</span>
+            <input class="input sm" data-i="${i}" data-f="pl" data-k="${k}" value="${esc(p[0])}" placeholder="Item ${k + 1}, e.g. Ribosome">
             <span class="eq-arrow">→</span>
-            <input class="input sm" data-i="${i}" data-f="pr" data-k="${k}" value="${esc(p[1])}" placeholder="Its match, e.g. Makes proteins">
+            <input class="input sm eq-key" data-i="${i}" data-f="pr" data-k="${k}" value="${esc(p[1])}" placeholder="Right answer for ${k + 1}, e.g. Makes proteins">
             ${q.pairs.length > 2 ? `<button class="ibtn del" data-qa="delpair" data-i="${i}" data-k="${k}" title="Remove pair">✕</button>` : '<span></span>'}</div>`).join('')}</div>
-          <div class="row-between"><span class="eq-hint">Students see the right-hand side mixed up and lettered A, B, C … Part marks for each correct pair.</span>${q.pairs.length < 10 ? `<button class="btn sm" data-qa="addpair" data-i="${i}">+ Pair</button>` : ''}</div>
+          <div class="row-between"><span class="eq-hint">Type each item's right answer on the <b>same row</b>. That row is the answer key. Students see all the right answers mixed up as A, B, C … and pick one for each item. Part marks for each correct pair.</span>${q.pairs.length < 10 ? `<button class="btn sm" data-qa="addpair" data-i="${i}">+ Pair</button>` : ''}</div>
           <input class="input sm" data-i="${i}" data-f="extra" value="${esc(q.extra || '')}" placeholder="Extra wrong answers on the right (optional), separated by |">`;
       } else if (q.type === 'fill') {
         body = `<span class="eq-hint">Put each missing word in [[double brackets]]: The [[nucleus]] controls the cell. Other accepted answers go after |, e.g. [[ATP|adenosine triphosphate]]. Part marks for each blank.</span>
